@@ -23,6 +23,18 @@ class FedAvgClient(Client):
                          client_config, cid, device, **kwargs)
         self._initialize_model()
 
+        temp = [self.count_by_class[cls] if cls in self.count_by_class.keys() else 1e-12 for cls in
+                range(client_config['num_classes'])]
+        self.count_by_class_full = torch.tensor(temp).to(self.device)
+        # print(np.array(temp).astype(int).tolist(), ",")  # dem so mau moi class trong moi client
+        # print("*** CHECK DATA *** : ", np.sum(np.array(temp).astype(int)))  # dem so mau moi client
+
+        self.p = np.array(temp) / np.sum(np.array(temp))
+        self.entropy = - np.sum(self.p * (np.log(self.p)))
+        self.score = np.sum(np.array(temp)) * self.entropy
+        # print(self.entropy)
+        print(self.score)
+
     def _initialize_model(self):
         # parse the model from config file
         self.model = eval(self.client_config['model'])(self.client_config).to(self.device)
@@ -69,7 +81,7 @@ class FedAvgClient(Client):
         self.train_acc_dict[round] = acc_seq
 
     def upload(self):
-        return self.new_state_dict
+        return self.new_state_dict, self.count_by_class_full, (self.entropy, self.score)
 
     def testing(self, round, testloader=None):
         self.model.eval()
@@ -108,7 +120,7 @@ class FedAvgClient(Client):
 
 
 class FedAvgServer(Server):
-    def __init__(self, server_config, clients_dict, exclude, **kwargs):
+    def __init__(self, server_config, clients_dict, exclude, cs_method, **kwargs):
         super().__init__(server_config, clients_dict, **kwargs)
         self.summary_setup()
         self.server_model_state_dict = deepcopy(self.clients_dict[0].get_params())
@@ -127,35 +139,135 @@ class FedAvgServer(Server):
         #         freeze_layers.append(param[0])
         # if len(freeze_layers) > 0:
         #     print("{self.server_config['strategy']}Server: the following layers will not be updated:", freeze_layers)
+        self.cs_method = cs_method
+
+        self.sort_client_entropy = np.zeros(shape=(10, 10), dtype=int)
+        self.sort_client_ref = np.zeros(shape=(10, 10), dtype=int)
+        self.sort_client = np.zeros(shape=(10, 10), dtype=int)
 
     def aggregate(self, client_uploads, round):
-        server_lr = self.server_config['learning_rate'] * (self.server_config['lr_decay_per_round'] ** (round - 1))
         num_participants = len(client_uploads)
         update_direction_state_dict = None
         exclude_layer_keys = self.exclude_layer_keys
+        print("-----------", exclude_layer_keys)
+
+        if self.cs_method == "FedMCS":
+            if round <= 10:
+                mul_acc_list = []
+                entropy_list = []
+                ref_list = []
+                for idx, (client_state_dict, count_per_class_client, ref_score) in enumerate(client_uploads):
+                    self.server_side_client.set_params(client_state_dict, self.exclude_layer_keys)
+                    self.server_side_client.testing(round, testloader=None)  # use global testdataset
+                    count_per_class_test = Counter(self.server_side_client.testloader.dataset.targets.numpy())
+                    num_classes = self.server_side_client.client_config['num_classes']
+                    count_per_class_test = torch.tensor([count_per_class_test[cls] * 1.0 for cls in range(num_classes)])
+                    # print("---check count_by_class_testset : ", count_per_class_test)
+                    print("---check count_by_class_client : ", count_per_class_client)
+                    num_data_in_client = torch.sum(count_per_class_client)
+                    print("---check num_data_in_client : ", num_data_in_client)
+                    self.gfl_test_acc_dict[round] = self.server_side_client.test_acc_dict[round]
+                    acc_per_class = self.gfl_test_acc_dict[round]['correct_per_class']
+                    print("---check acc_per_class : ", acc_per_class)
+
+                    entropy_list.append(ref_score[0])
+                    ref_list.append(ref_score[1])
+
+                    mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test)) * num_data_in_client
+                    mul_acc_list.append(mul_acc.cpu().numpy())
+
+                print("---check mul_acc_list : ", mul_acc_list)
+
+                sorted_idx_acc = [x for _, x in sorted(zip(mul_acc_list, self.active_clients_indicies), reverse=True)]
+                sorted_idx_acc = np.array(sorted_idx_acc)
+                print("---check sorted_idx_acc : ", sorted_idx_acc)
+
+                # Calculate gradient list
+                gradients_list = []
+                # num_samples_list = []
+                for idx, (client_state_dict, count_per_class_client, _) in enumerate(client_uploads):
+                    gradient = []
+                    for state_key in client_state_dict.keys():
+                        if state_key not in self.exclude_layer_keys:
+                            g = client_state_dict[state_key] - self.server_model_state_dict[state_key]
+                            gradient.append(g.cpu().numpy().flatten())
+                    gradient = np.concatenate(gradient, axis=0)
+                    gradients_list.append(gradient)
+                    # num_samples_list.append(torch.sum(count_per_class_client))
+
+                weights = torch.tensor([1] * 10)
+                # weights = torch.tensor(num_samples_list)
+                weights = weights / torch.sum(weights)
+                weights_2d = weights.unsqueeze(1)
+                gradients_list = torch.tensor(gradients_list)
+                gradient_global = gradients_list * weights_2d
+                gradient_global = torch.sum(gradient_global, 0)
+                cosin_similary_list = [torch.nn.CosineSimilarity(dim=0)(gradient_global, grad_k) for grad_k in
+                                       gradients_list]
+                print("---check cosin_similary_list : ", cosin_similary_list)
+                sorted_idx_grad = np.array(
+                    [x for _, x in sorted(zip(cosin_similary_list, self.active_clients_indicies), reverse=True)])
+                print("---check sorted_idx_grad : ", sorted_idx_grad)
+
+                # Sort
+                mul_acc_list = torch.tensor(np.array(mul_acc_list))
+                score_final = [mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
+                sorted_idx = np.array(
+                    [x for _, x in sorted(zip(score_final, self.active_clients_indicies), reverse=True)])
+                print("---check sorted_idx_score : ", sorted_idx)
+                self.sort_client[round - 1] = sorted_idx
+
+                print("---check entropy_list : ", entropy_list)
+                sorted_entropy = np.array([x for _, x in sorted(zip(entropy_list, self.active_clients_indicies), reverse=True)])
+                print("---check sorted_entropy : ", sorted_entropy)
+                self.sort_client_entropy[round - 1] = sorted_entropy
+
+                print("---check ref_list : ", ref_list)
+                sorted_ref = np.array([x for _, x in sorted(zip(ref_list, self.active_clients_indicies), reverse=True)])
+                print("---check sorted_ref : ", sorted_ref)
+                self.sort_client_ref[round - 1] = sorted_ref
+
+            if round == 10:
+                self.sort_client = self.sort_client.transpose()
+                print("---check self.sort_client : ")
+                print(self.sort_client)
+
+                self.sort_client_entropy = self.sort_client_entropy.transpose()
+                print("---check self.sort_client_entropy : ")
+                print(self.sort_client_entropy)
+
+                self.sort_client_ref = self.sort_client_ref.transpose()
+                print("---check self.sort_client_ref : ")
+                print(self.sort_client_ref)
+
         with torch.no_grad():
-            for idx, client_state_dict in enumerate(client_uploads):
+            for idx, (client_state_dict, count_per_class_client, _) in enumerate(client_uploads):
                 client_update = linear_combination_state_dict(client_state_dict,
                                                               self.server_model_state_dict,
                                                               1.0,
                                                               -1.0,
-                                                              exclude=exclude_layer_keys
                                                               )
+                # num_data_in_client = np.sum(count_per_class_client.cpu().numpy())
                 if idx == 0:
                     update_direction_state_dict = client_update
+                    # update_direction_state_dict = linear_combination_state_dict(client_update, client_update, 0,
+                    #                                                             num_data_in_client,
+                    #                                                             )
+                    # sum_samples_participants = num_data_in_client
                 else:
                     update_direction_state_dict = linear_combination_state_dict(update_direction_state_dict,
                                                                                 client_update,
                                                                                 1.0,
                                                                                 1.0,
-                                                                                exclude=exclude_layer_keys
+                                                                                # num_data_in_client,
                                                                                 )
-            # new global model
+                    # sum_samples_participants += num_data_in_client
+
             self.server_model_state_dict = linear_combination_state_dict(self.server_model_state_dict,
                                                                          update_direction_state_dict,
                                                                          1.0,
-                                                                         server_lr / num_participants,
-                                                                         exclude=exclude_layer_keys
+                                                                         1 / num_participants,
+                                                                         # 1 / sum_samples_participants,
                                                                          )
 
     def testing(self, round, active_only=True, **kwargs):
@@ -230,18 +342,36 @@ class FedAvgServer(Server):
             round_iterator = tqdm(range(self.rounds + 1, self.server_config['num_rounds'] + 1), desc="Round Progress")
         else:
             round_iterator = range(self.rounds + 1, self.server_config['num_rounds'] + 1)
+
         # round index begin with 1
         for r in round_iterator:
             setup_seed(r + kwargs['global_seed'])
-            selected_indices = self.select_clients(self.server_config['participate_ratio'])
-            if self.server_config['drop_ratio'] > 0:
-                # mimic the stragler issues; simply drop them
-                self.active_clients_indicies = np.random.choice(selected_indices, int(
-                    len(selected_indices) * (1 - self.server_config['drop_ratio'])), replace=False)
-            else:
-                self.active_clients_indicies = selected_indices
+            if self.cs_method == "Random":
+                self.active_clients_indicies = self.select_clients(self.server_config['participate_ratio'])
+            elif self.cs_method == "FedMCS":
+                if r <= 10:
+                    self.active_clients_indicies = np.arange((r - 1) * 10, r * 10)
+                elif r <= 15:
+                    self.active_clients_indicies = self.sort_client[0]
+                elif 16 <= r <= 60:
+                    rr = (r - 16) % 15
+                    k = int(np.abs(np.sqrt(2 * (rr + 1) + 1 / 4) - 1 / 2))
+                    residual = int((rr + 1) - k * (k + 1) / 2)
+                    if residual == 1:
+                        clients_consider = self.sort_client[:k + 1].flatten()
+                        np.random.shuffle(clients_consider)
+                        print("round :", r, "k :", k, "res :", residual)
+                        print("client consider :", clients_consider)
+                    elif residual == 0 and k == 1:
+                        clients_consider = self.sort_client[0]
+                        print("client consider :", clients_consider)
+                    self.active_clients_indicies = clients_consider[10 * (
+                                residual - 1):10 * residual] if residual > 0 else clients_consider[-10:]
+                else:
+                    self.active_clients_indicies = self.select_clients(self.server_config['participate_ratio'])
             # active clients download weights from the server
             tqdm.write(f"Round:{r} - Active clients:{self.active_clients_indicies}:")
+
             for cid in self.active_clients_indicies:
                 client = self.clients_dict[cid]
                 client.set_params(self.server_model_state_dict, self.exclude_layer_keys)

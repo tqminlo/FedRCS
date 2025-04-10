@@ -162,8 +162,8 @@ class FedUHClient(Client):
 
 
 class FedUHServer(FedAvgServer):
-    def __init__(self, server_config, clients_dict, exclude, **kwargs):
-        super().__init__(server_config, clients_dict, exclude, **kwargs)
+    def __init__(self, server_config, clients_dict, exclude, cs_method, **kwargs):
+        super().__init__(server_config, clients_dict, exclude, cs_method, **kwargs)
         if len(self.exclude_layer_keys) > 0:
             print(f"FedUHServer: the following keys will not be aggregate:\n ", self.exclude_layer_keys)
         freeze_layers = []

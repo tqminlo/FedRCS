@@ -24,8 +24,6 @@ server_config:
   # int
   num_shards_per_client: None
   num_classes: 10
-  learning_rate: 1.0
-  lr_decay_per_round: 1.0
   # layers to be skipped in aggregation
   exclude: !!python/tuple []
 

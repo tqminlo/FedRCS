@@ -84,13 +84,14 @@ def run(args):
     else:
         raise ValueError("Invalid strategy!")
 
-    run_tag = f"{server_config['strategy']}_{server_config['dataset']}_{client_config['model']}_{server_config['partition']}_{partition_arg}_num_clients:{server_config['num_clients']}_participate_ratio:{server_config['participate_ratio']}_global_seed:{args.global_seed}"
+    run_tag = f"{server_config['strategy']}_{args.cs_method}_{server_config['dataset']}_{client_config['model']}_{partition_arg}_num_clients:{server_config['num_clients']}_participate_ratio:{server_config['participate_ratio']}_global_seed:{args.global_seed}"
     if hyper_params is not None:
         run_tag += "_" + hyper_params
 
     run_tag += f"_no_norm:{args.no_norm}"
-    directory = f"./{args.purpose}_{server_config['strategy']}/"
-    mkdirs(directory)
+    directory = f"experiments/{args.purpose}_{server_config['strategy']}/"
+    if args.save_global:
+        mkdirs(directory)
     path = directory + run_tag
     if os.path.exists(path + '_final_server_obj.pkl'):
         print(f"Task:{run_tag} is finished. Exiting...")
@@ -127,7 +128,7 @@ def run(args):
                                      )
     # setup server and run
     if args.strategy != 'Local':
-        server = ServerCstr(server_config, clients_dict, exclude=server_config['exclude'],
+        server = ServerCstr(server_config, clients_dict, exclude=server_config['exclude'], cs_method=args.cs_method,
                             server_side_criterion=criterion, global_testset=testset, global_trainset=trainset,
                             client_cstr=ClientCstr, server_side_client_config=client_config, server_side_client_device=args.device)
         print('Strategy Related Hyper-parameters:')
@@ -139,7 +140,8 @@ def run(args):
         for k in client_config.keys():
             if args.strategy in k:
                 print(' ', k, ":", client_config[k])
-        server.run(filename=path + '_best_global_model.pkl', use_wandb=use_wandb, global_seed=args.global_seed, num_epochs=args.num_epochs, save_global=args.save_global)
+        server.run(filename=path + '_best_global_model.pkl', use_wandb=use_wandb, global_seed=args.global_seed, num_epochs=args.num_epochs,
+                   save_global=args.save_global)
         if args.save_global:
             server.save(filename=path + '_final_server_obj.pkl', keep_clients_model=args.keep_clients_model)
     else:
@@ -171,7 +173,7 @@ if __name__ == "__main__":
     parser.add_argument('--global_seed', default=2022, type=int, help='Global random seed.')
     parser.add_argument('--use_wandb', default=True, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='Use wandb pkg')
     parser.add_argument('--keep_clients_model', default=False, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='Keep FedAVG local model')
-    parser.add_argument('--saved_global', default=False, type=bool, help='Keep FedAVG local model')
+    parser.add_argument('--save_global', default=False, type=bool, help='Keep FedAVG local model')
     # model architecture
     parser.add_argument('--no_norm', default=False, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='Use group/batch norm or not')
     # optimizer

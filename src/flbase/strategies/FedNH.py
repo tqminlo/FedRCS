@@ -14,19 +14,15 @@ from ..models.MLP import *
 from ..utils import setup_optimizer, linear_combination_state_dict, setup_seed
 from ...utils import autoassign, save_to_pkl, access_last_added_element
 from .FedUH import FedUHClient, FedUHServer
+from .FedAvg import FedAvgClient, FedAvgServer
 import math
 import time
 import torch.nn.functional as F
 
 
-class FedNHClient(FedUHClient):
+class FedNHClient(FedAvgClient):
     def __init__(self, criterion, trainset, testset, client_config, cid, device, **kwargs):
-        super().__init__(criterion, trainset, testset,
-                         client_config, cid, device, **kwargs)
-        temp = [self.count_by_class[cls] if cls in self.count_by_class.keys() else 1e-12 for cls in range(client_config['num_classes'])]
-        self.count_by_class_full = torch.tensor(temp).to(self.device)
-        print(np.array(temp).astype(int).tolist(), ",")              # dem so mau moi class trong moi client
-        # print("*** CHECK DATA *** : ", np.sum(np.array(temp).astype(int)))  # dem so mau moi client
+        super().__init__(criterion, trainset, testset, client_config, cid, device, **kwargs)
 
     def _estimate_prototype(self):
         self.model.eval()
@@ -96,14 +92,14 @@ class FedNHClient(FedUHClient):
 
     def upload(self):
         if self.client_config['FedNH_client_adv_prototype_agg']:
-            return self.new_state_dict, self._estimate_prototype_adv()
+            return self.new_state_dict, self._estimate_prototype_adv(), (self.entropy, self.score)
         else:
-            return self.new_state_dict, self._estimate_prototype()
+            return self.new_state_dict, self._estimate_prototype(), (self.entropy, self.score)
 
 
 class FedNHServer(FedUHServer):
-    def __init__(self, server_config, clients_dict, exclude, **kwargs):
-        super().__init__(server_config, clients_dict, exclude, **kwargs)
+    def __init__(self, server_config, clients_dict, exclude, cs_method, **kwargs):
+        super().__init__(server_config, clients_dict, exclude, cs_method, **kwargs)
         if len(self.exclude_layer_keys) > 0:
             print(f"FedNHServer: the following keys will not be aggregated:\n ", self.exclude_layer_keys)
 
@@ -114,8 +110,99 @@ class FedNHServer(FedUHServer):
         # agg weights for prototype
         cumsum_per_class = torch.zeros(self.server_config['num_classes']).to(self.clients_dict[0].device)
         agg_weights_vec_dict = {}
+
+        if self.cs_method == "FedMCS":
+            if round <= 10:
+                mul_acc_list = []
+                entropy_list = []
+                ref_list = []
+                for idx, (client_state_dict, prototype_dict, ref_score) in enumerate(client_uploads):
+                    self.server_side_client.set_params(client_state_dict, self.exclude_layer_keys)
+                    self.server_side_client.testing(round, testloader=None)  # use global testdataset
+                    count_per_class_test = Counter(self.server_side_client.testloader.dataset.targets.numpy())
+                    num_classes = self.server_side_client.client_config['num_classes']
+                    count_per_class_test = torch.tensor([count_per_class_test[cls] * 1.0 for cls in range(num_classes)])
+                    # print("---check count_by_class_testset : ", count_per_class_test)
+                    count_per_class_client = prototype_dict['count_by_class_full']
+                    print("---check count_by_class_client : ", count_per_class_client)
+                    num_data_in_client = torch.sum(count_per_class_client)
+                    print("---check num_data_in_client : ", num_data_in_client)
+                    self.gfl_test_acc_dict[round] = self.server_side_client.test_acc_dict[round]
+                    acc_per_class = self.gfl_test_acc_dict[round]['correct_per_class']
+                    print("---check acc_per_class : ", acc_per_class)
+
+                    entropy_list.append(ref_score[0])
+                    ref_list.append(ref_score[1])
+
+                    mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test)) * num_data_in_client
+                    mul_acc_list.append(mul_acc.cpu().numpy())
+
+                print("---check mul_acc_list : ", mul_acc_list)
+
+                sorted_idx_acc = [x for _, x in sorted(zip(mul_acc_list, self.active_clients_indicies), reverse=True)]
+                sorted_idx_acc = np.array(sorted_idx_acc)
+                print("---check sorted_idx_acc : ", sorted_idx_acc)
+
+                # Calculate gradient list
+                gradients_list = []
+                # num_samples_list = []
+                for idx, (client_state_dict, prototype_dict, _) in enumerate(client_uploads):
+                    gradient = []
+                    for state_key in client_state_dict.keys():
+                        if state_key not in self.exclude_layer_keys:
+                            g = client_state_dict[state_key] - self.server_model_state_dict[state_key]
+                            gradient.append(g.cpu().numpy().flatten())
+                    gradient = np.concatenate(gradient, axis=0)
+                    gradients_list.append(gradient)
+                    # num_samples_list.append(torch.sum(count_per_class_client))
+
+                weights = torch.tensor([1] * 10)
+                # weights = torch.tensor(num_samples_list)
+                weights = weights / torch.sum(weights)
+                weights_2d = weights.unsqueeze(1)
+                gradients_list = torch.tensor(gradients_list)
+                gradient_global = gradients_list * weights_2d
+                gradient_global = torch.sum(gradient_global, 0)
+                cosin_similary_list = [torch.nn.CosineSimilarity(dim=0)(gradient_global, grad_k) for grad_k in
+                                       gradients_list]
+                print("---check cosin_similary_list : ", cosin_similary_list)
+                sorted_idx_grad = np.array(
+                    [x for _, x in sorted(zip(cosin_similary_list, self.active_clients_indicies), reverse=True)])
+                print("---check sorted_idx_grad : ", sorted_idx_grad)
+
+                # Sort
+                mul_acc_list = torch.tensor(np.array(mul_acc_list))
+                score_final = [mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
+                sorted_idx = np.array(
+                    [x for _, x in sorted(zip(score_final, self.active_clients_indicies), reverse=True)])
+                print("---check sorted_idx_score : ", sorted_idx)
+                self.sort_client[round - 1] = sorted_idx
+
+                print("---check entropy_list : ", entropy_list)
+                sorted_entropy = np.array([x for _, x in sorted(zip(entropy_list, self.active_clients_indicies), reverse=True)])
+                print("---check sorted_entropy : ", sorted_entropy)
+                self.sort_client_entropy[round - 1] = sorted_entropy
+
+                print("---check ref_list : ", ref_list)
+                sorted_ref = np.array([x for _, x in sorted(zip(ref_list, self.active_clients_indicies), reverse=True)])
+                print("---check sorted_ref : ", sorted_ref)
+                self.sort_client_ref[round - 1] = sorted_ref
+
+            if round == 10:
+                self.sort_client = self.sort_client.transpose()
+                print("---check self.sort_client : ")
+                print(self.sort_client)
+
+                self.sort_client_entropy = self.sort_client_entropy.transpose()
+                print("---check self.sort_client_entropy : ")
+                print(self.sort_client_entropy)
+
+                self.sort_client_ref = self.sort_client_ref.transpose()
+                print("---check self.sort_client_ref : ")
+                print(self.sort_client_ref)
+
         with torch.no_grad():
-            for idx, (client_state_dict, prototype_dict) in enumerate(client_uploads):
+            for idx, (client_state_dict, prototype_dict, _) in enumerate(client_uploads):
                 if self.server_config['FedNH_server_adv_prototype_agg'] == False:
                     cumsum_per_class += prototype_dict['count_by_class_full']
                 else:
