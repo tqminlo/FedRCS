@@ -1,0 +1,9 @@
+tensorflow
+torch
+torchvision
+opencv-python
+scikit-learn
+tqdm
+pandas
+PyYAML
+wandb
