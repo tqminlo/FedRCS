@@ -12,7 +12,7 @@ from ..client import Client
 from ..model import ModelWrapper
 from ..models.CNN import *
 from ..models.MLP import *
-from ..strategies.FedAvg import FedAvgServer
+from ..strategies.FedAvg import FedAvgClient, FedAvgServer
 from ..utils import setup_optimizer, linear_combination_state_dict, setup_seed
 from ...utils import autoassign, save_to_pkl, access_last_added_element
 import time
@@ -39,17 +39,12 @@ class HyperClassifier(nn.Module):
         return h_final
 
 
-class FedRODClient(Client):
+class FedRODClient(FedAvgClient):
     def __init__(self, criterion, trainset, testset, client_config, cid, device, **kwargs):
         super().__init__(criterion, trainset, testset,
                          client_config, cid, device, **kwargs)
         self.is_on_server = False
-        # prepare for balanced softmax loss
-        temp = [self.count_by_class[cls] if cls in self.count_by_class.keys() else 1e-12 for cls in range(client_config['num_classes'])]
-        count_by_class_full = torch.tensor(temp).to(self.device)
-        self.sample_per_class = count_by_class_full / torch.sum(count_by_class_full)
-
-        self._initialize_model()
+        self.sample_per_class = self.count_by_class_full / torch.sum(self.count_by_class_full)
 
     def set_on_server(self):
         self.is_on_server = True
@@ -213,9 +208,6 @@ class FedRODClient(Client):
         self.train_loss_dict[round] = loss_seq
         self.train_acc_dict[round] = acc_seq
 
-    def upload(self):
-        return self.new_state_dict
-
     def testing(self, round, testloader=None):
         self.model.eval()
         if testloader is None:
@@ -264,8 +256,8 @@ class FedRODClient(Client):
 
 
 class FedRODServer(FedAvgServer):
-    def __init__(self, server_config, clients_dict, exclude, **kwargs):
-        super().__init__(server_config, clients_dict, exclude, **kwargs)
+    def __init__(self, server_config, clients_dict, exclude, cs_method, **kwargs):
+        super().__init__(server_config, clients_dict, exclude, cs_method, **kwargs)
         # set correct status so that it use the global model to perform evaluation
         self.server_side_client.set_on_server()
 

@@ -429,17 +429,20 @@ class ResNet18(Model):
         backbone = resnet18(pretrained=True)
         modules = list(backbone.children())[:-2]
         self.backbone = torch.nn.Sequential(*modules)
-        self.prototype = nn.Linear(2 * 2 * 512, config['num_classes'], bias=False)
+        self.fc = nn.Linear(2 * 2 * 512, 128)
+        self.prototype = nn.Linear(128, config['num_classes'], bias=False)
 
     def forward(self, x):
         x = self.backbone(x)
         x = nn.Flatten()(x)
+        x = self.fc(x)
         logits = self.prototype(x)
         return logits
 
     def get_embedding(self, x):
         x = self.backbone(x)
         x = nn.Flatten()(x)
+        x = self.fc(x)
         logits = self.prototype(x)
         return x, logits
 
@@ -451,13 +454,15 @@ class ResNet18NH(Model):
         backbone = resnet18(pretrained=True)
         modules = list(backbone.children())[:-2]
         self.backbone = torch.nn.Sequential(*modules)
-        temp = nn.Linear(2 * 2 * 512, config['num_classes'], bias=False).state_dict()['weight']
+        self.fc = nn.Linear(2 * 2 * 512, 128)
+        temp = nn.Linear(128, config['num_classes'], bias=False).state_dict()['weight']
         self.prototype = nn.Parameter(temp)
         self.scaling = torch.nn.Parameter(torch.tensor([1.0]))
 
     def forward(self, x):
         x = self.backbone(x)
-        feature_embedding = nn.Flatten()(x)
+        x = nn.Flatten()(x)
+        feature_embedding = self.fc(x)
         feature_embedding_norm = torch.norm(feature_embedding, p=2, dim=1, keepdim=True).clamp(min=1e-12)
         feature_embedding = torch.div(feature_embedding, feature_embedding_norm)
         if self.prototype.requires_grad == False:

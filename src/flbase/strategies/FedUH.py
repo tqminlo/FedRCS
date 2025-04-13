@@ -12,13 +12,13 @@ from ..client import Client
 from ..models.CNN import *
 from ..models.MLP import *
 from ..utils import setup_optimizer, linear_combination_state_dict, setup_seed
-from ..strategies.FedAvg import FedAvgServer
+from ..strategies.FedAvg import FedAvgClient, FedAvgServer
 from ...utils import autoassign, save_to_pkl, access_last_added_element
 import math
 import time
 
 
-class FedUHClient(Client):
+class FedUHClient(FedAvgClient):
     def __init__(self, criterion, trainset, testset, client_config, cid, device, **kwargs):
         super().__init__(criterion, trainset, testset,
                          client_config, cid, device, **kwargs)

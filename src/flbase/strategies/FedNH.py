@@ -14,13 +14,12 @@ from ..models.MLP import *
 from ..utils import setup_optimizer, linear_combination_state_dict, setup_seed
 from ...utils import autoassign, save_to_pkl, access_last_added_element
 from .FedUH import FedUHClient, FedUHServer
-from .FedAvg import FedAvgClient, FedAvgServer
 import math
 import time
 import torch.nn.functional as F
 
 
-class FedNHClient(FedAvgClient):
+class FedNHClient(FedUHClient):
     def __init__(self, criterion, trainset, testset, client_config, cid, device, **kwargs):
         super().__init__(criterion, trainset, testset, client_config, cid, device, **kwargs)
 
@@ -104,7 +103,7 @@ class FedNHServer(FedUHServer):
             print(f"FedNHServer: the following keys will not be aggregated:\n ", self.exclude_layer_keys)
 
     def aggregate(self, client_uploads, round):
-        server_lr = self.server_config['learning_rate'] * (self.server_config['lr_decay_per_round'] ** (round - 1))
+        # server_lr = self.server_config['learning_rate'] * (self.server_config['lr_decay_per_round'] ** (round - 1))
         num_participants = len(client_uploads)
         update_direction_state_dict = None
         # agg weights for prototype
@@ -228,17 +227,17 @@ class FedNHServer(FedUHServer):
             self.server_model_state_dict = linear_combination_state_dict(self.server_model_state_dict,
                                                                          update_direction_state_dict,
                                                                          1.0,
-                                                                         server_lr / num_participants,
+                                                                         1 / num_participants,
                                                                          exclude=self.exclude_layer_keys
                                                                          )
             avg_prototype = torch.zeros_like(self.server_model_state_dict['prototype'])
             if self.server_config['FedNH_server_adv_prototype_agg'] == False:
-                for _, prototype_dict in client_uploads:
+                for _, prototype_dict, _ in client_uploads:
                     avg_prototype += prototype_dict['scaled_prototype'] / cumsum_per_class.view(-1, 1)
             else:
                 m = self.server_model_state_dict['prototype'].shape[0]
                 sum_of_weights = torch.zeros((m, 1)).to(avg_prototype.device)
-                for idx, (_, prototype_dict) in enumerate(client_uploads):
+                for idx, (_, prototype_dict, _) in enumerate(client_uploads):
                     sum_of_weights += agg_weights_vec_dict[idx]
                     avg_prototype += agg_weights_vec_dict[idx] * prototype_dict['adv_agg_prototype']
                 avg_prototype /= sum_of_weights

@@ -367,6 +367,20 @@ class FedAvgServer(Server):
                         print("client consider :", clients_consider)
                     self.active_clients_indicies = clients_consider[10 * (
                                 residual - 1):10 * residual] if residual > 0 else clients_consider[-10:]
+                elif 16 <= r <= 60:
+                    rr = (r - 16) % 15
+                    k = int(np.abs(np.sqrt(2 * (rr + 1) + 1 / 4) - 1 / 2))
+                    residual = int((rr + 1) - k * (k + 1) / 2)
+                    if residual == 1:
+                        clients_consider = self.sort_client[:k + 1].flatten()
+                        np.random.shuffle(clients_consider)
+                        print("round :", r, "k :", k, "res :", residual)
+                        print("client consider :", clients_consider)
+                    elif residual == 0 and k == 1:
+                        clients_consider = self.sort_client[0]
+                        print("client consider :", clients_consider)
+                    self.active_clients_indicies = clients_consider[10 * (
+                                residual - 1):10 * residual] if residual > 0 else clients_consider[-10:]
                 else:
                     self.active_clients_indicies = self.select_clients(self.server_config['participate_ratio'])
             # active clients download weights from the server

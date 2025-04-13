@@ -952,8 +952,8 @@ def get_datasets(datasetname, **kwargs):
         test_transform = transforms.Compose([transforms.Resize((64, 64)),
                                              transforms.ToTensor(),
                                              ])
-        trainset = BrainTumorDataset(root_dir="../data/BrainMRI/Training", transform=train_transform)
-        testset = BrainTumorDataset(root_dir="../data/BrainMRI/Testing", transform=test_transform)
+        trainset = BrainTumorDataset(root_dir="./data/BrainMRI/Training", transform=train_transform)
+        testset = BrainTumorDataset(root_dir="./data/BrainMRI/Testing", transform=test_transform)
 
     elif datasetname == "ICH":
         import sys
@@ -970,8 +970,8 @@ def get_datasets(datasetname, **kwargs):
                                              transforms.ToTensor(),
                                               ####normalize,
                                              ])
-        trainset = ICHDataset(root_dir="../data/ICH/train", transform=train_transform)
-        testset = ICHDataset(root_dir="../data/ICH/test", transform=test_transform)
+        trainset = ICHDataset(root_dir="./data/ICH/train", transform=train_transform)
+        testset = ICHDataset(root_dir="./data/ICH/test", transform=test_transform)
 
     else:
         raise ValueError(f"Unrecognized dataset:{datasetname}")

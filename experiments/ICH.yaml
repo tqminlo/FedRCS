@@ -59,7 +59,7 @@ client_config:
   # number of samples per batch: int
   batch_size: 64
   # {Adam, SGD}
-  optimizer: SGD
+  optimizer: Adam
   # initial learning rate for each round
   learning_rate: 0.1
   lr_scheduler: stepwise # {diminishing}
