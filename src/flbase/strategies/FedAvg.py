@@ -91,6 +91,7 @@ class FedAvgClient(Client):
         num_classes = self.client_config['num_classes']
         test_count_per_class = torch.tensor([test_count_per_class[cls] * 1.0 for cls in range(num_classes)])
         test_correct_per_class = torch.tensor([0] * num_classes)
+        test_TN_per_class = torch.tensor([0] * num_classes)
 
         weight_per_class_dict = {'uniform': torch.tensor([1.0] * num_classes),
                                  'validclass': torch.tensor([0.0] * num_classes),
@@ -109,10 +110,14 @@ class FedAvgClient(Client):
                 classes_shown_in_this_batch = torch.unique(y).cpu().numpy()
                 for cls in classes_shown_in_this_batch:
                     test_correct_per_class[cls] += ((predicted == y) * (y == cls)).sum().item()
+                    test_TN_per_class[cls] += ((predicted != y) * (y != cls)).sum().item()
         acc_by_critertia_dict = {}
         for k in weight_per_class_dict.keys():
             acc_by_critertia_dict[k] = (((weight_per_class_dict[k] * test_correct_per_class).sum()) /
                                         ((weight_per_class_dict[k] * test_count_per_class).sum())).item()
+
+        acc_by_critertia_dict["BACC"] = (test_correct_per_class / test_count_per_class +
+                                         test_TN_per_class / (test_count_per_class.sum() - test_count_per_class)) / 2
 
         self.test_acc_dict[round] = {'acc_by_criteria': acc_by_critertia_dict,
                                      'correct_per_class': test_correct_per_class,
@@ -344,6 +349,7 @@ class FedAvgServer(Server):
             round_iterator = range(self.rounds + 1, self.server_config['num_rounds'] + 1)
 
         # round index begin with 1
+        best_test_acc = 0
         for r in round_iterator:
             setup_seed(r + kwargs['global_seed'])
             if self.cs_method == "Random":
@@ -418,22 +424,30 @@ class FedAvgServer(Server):
                 self.collect_stats(stage="test", round=r, active_only=True)
                 print(" avg_test_acc:", self.gfl_test_acc_dict[r]['acc_by_criteria'])
                 # print(" pfl_avg_test_acc:", self.average_pfl_test_acc_dict[r])
-                if len(self.gfl_test_acc_dict) >= 2:
-                    current_key = r
-                    if self.gfl_test_acc_dict[current_key]['acc_by_criteria']['uniform'] > best_test_acc:
-                        best_test_acc = self.gfl_test_acc_dict[current_key]['acc_by_criteria']['uniform']
-                        self.server_model_state_dict_best_so_far = deepcopy(self.server_model_state_dict)
-                        tqdm.write(f" Best test accuracy:{float(best_test_acc):5.3f}. Best server model is updatded and saved at {kwargs['filename']}!")
-                        if ('filename' in kwargs) and kwargs["save_global"]:
-                            torch.save(self.server_model_state_dict_best_so_far, kwargs['filename'])
+
+                if kwargs["metric"] == "bacc":
+                    current_gfl_acc = self.gfl_test_acc_dict[r]['acc_by_criteria']['bacc']
                 else:
-                    best_test_acc = self.gfl_test_acc_dict[r]['acc_by_criteria']['uniform']
+                    current_gfl_acc = self.gfl_test_acc_dict[r]['acc_by_criteria']['uniform']
+                if current_gfl_acc > best_test_acc:
+                    best_test_acc = current_gfl_acc
+                    self.server_model_state_dict_best_so_far = deepcopy(self.server_model_state_dict)
+                    tqdm.write(f" Best test accuracy:{float(best_test_acc):5.3f}. Best server model is updatded and saved at {kwargs['filename']}!")
+                    if ('filename' in kwargs) and kwargs["save_global"]:
+                        torch.save(self.server_model_state_dict_best_so_far, kwargs['filename'])
+
             # wandb monitoring
             if kwargs['use_wandb']:
-                stats = {"avg_train_loss": self.average_train_loss_dict[r],
-                         "avg_train_acc": self.average_train_acc_dict[r],
-                         "gfl_test_acc_uniform": self.gfl_test_acc_dict[r]['acc_by_criteria']['uniform']
-                         }
+                if kwargs["metric"] == "bacc":
+                    stats = {"avg_train_loss": self.average_train_loss_dict[r],
+                             "avg_train_acc": self.average_train_acc_dict[r],
+                             "gfl_test_acc_uniform": self.gfl_test_acc_dict[r]['acc_by_criteria']['bacc']
+                             }
+                else:
+                    stats = {"avg_train_loss": self.average_train_loss_dict[r],
+                             "avg_train_acc": self.average_train_acc_dict[r],
+                             "gfl_test_acc_uniform": self.gfl_test_acc_dict[r]['acc_by_criteria']['uniform']
+                             }
 
                 #####for criteria in self.average_pfl_test_acc_dict[r].keys():
                     ######stats[f'pfl_test_acc_{criteria}'] = self.average_pfl_test_acc_dict[r][criteria]

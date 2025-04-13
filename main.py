@@ -141,7 +141,7 @@ def run(args):
             if args.strategy in k:
                 print(' ', k, ":", client_config[k])
         server.run(filename=path + '_best_global_model.pkl', use_wandb=use_wandb, global_seed=args.global_seed, num_epochs=args.num_epochs,
-                   save_global=args.save_global)
+                   save_global=args.save_global, metric=args.metric)
         if args.save_global:
             server.save(filename=path + '_final_server_obj.pkl', keep_clients_model=args.keep_clients_model)
     else:
@@ -169,6 +169,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test Algorithms.')
     # general settings
     parser.add_argument('--purpose', default='experiments', type=str, help='purpose of this run')
+    parser.add_argument('--metric', default='acc', type=str, help='metric for each dataset')
     parser.add_argument('--device', default='cuda:1', type=str, help='cuda device')
     parser.add_argument('--global_seed', default=2022, type=int, help='Global random seed.')
     parser.add_argument('--use_wandb', default=True, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='Use wandb pkg')
