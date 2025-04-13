@@ -116,8 +116,8 @@ class FedAvgClient(Client):
             acc_by_critertia_dict[k] = (((weight_per_class_dict[k] * test_correct_per_class).sum()) /
                                         ((weight_per_class_dict[k] * test_count_per_class).sum())).item()
 
-        acc_by_critertia_dict["BACC"] = (test_correct_per_class / test_count_per_class +
-                                         test_TN_per_class / (test_count_per_class.sum() - test_count_per_class)) / 2
+        acc_by_critertia_dict["BACC"] = ((test_correct_per_class / test_count_per_class +
+                                         test_TN_per_class / (test_count_per_class.sum() - test_count_per_class)) / 2).mean()
 
         self.test_acc_dict[round] = {'acc_by_criteria': acc_by_critertia_dict,
                                      'correct_per_class': test_correct_per_class,
@@ -426,7 +426,7 @@ class FedAvgServer(Server):
                 # print(" pfl_avg_test_acc:", self.average_pfl_test_acc_dict[r])
 
                 if kwargs["metric"] == "bacc":
-                    current_gfl_acc = self.gfl_test_acc_dict[r]['acc_by_criteria']['bacc']
+                    current_gfl_acc = self.gfl_test_acc_dict[r]['acc_by_criteria']['BACC']
                 else:
                     current_gfl_acc = self.gfl_test_acc_dict[r]['acc_by_criteria']['uniform']
                 if current_gfl_acc > best_test_acc:
@@ -441,7 +441,7 @@ class FedAvgServer(Server):
                 if kwargs["metric"] == "bacc":
                     stats = {"avg_train_loss": self.average_train_loss_dict[r],
                              "avg_train_acc": self.average_train_acc_dict[r],
-                             "gfl_test_acc_uniform": self.gfl_test_acc_dict[r]['acc_by_criteria']['bacc']
+                             "gfl_test_acc_uniform": self.gfl_test_acc_dict[r]['acc_by_criteria']['BACC']
                              }
                 else:
                     stats = {"avg_train_loss": self.average_train_loss_dict[r],
