@@ -110,7 +110,7 @@ class FedAvgClient(Client):
                 classes_shown_in_this_batch = torch.unique(y).cpu().numpy()
                 for cls in classes_shown_in_this_batch:
                     test_correct_per_class[cls] += ((predicted == y) * (y == cls)).sum().item()
-                    test_TN_per_class[cls] += ((predicted != y) * (y != cls)).sum().item()
+                    test_TN_per_class[cls] += ((predicted != cls) * (y != cls)).sum().item()
         acc_by_critertia_dict = {}
         for k in weight_per_class_dict.keys():
             acc_by_critertia_dict[k] = (((weight_per_class_dict[k] * test_correct_per_class).sum()) /
