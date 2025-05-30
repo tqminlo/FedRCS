@@ -122,44 +122,6 @@ class FedUHClient(FedAvgClient):
     def upload(self):
         return self.new_state_dict
 
-    def testing(self, round, testloader=None):
-        self.model.eval()
-        if testloader is None:
-            testloader = self.testloader
-        test_count_per_class = Counter(testloader.dataset.targets.numpy())
-        # all_classes_sorted = sorted(test_count_per_class.keys())
-        # test_count_per_class = torch.tensor([test_count_per_class[cls] * 1.0 for cls in all_classes_sorted])
-        # num_classes = len(all_classes_sorted)
-        num_classes = self.client_config['num_classes']
-        test_count_per_class = torch.tensor([test_count_per_class[cls] * 1.0 for cls in range(num_classes)])
-        test_correct_per_class = torch.tensor([0] * num_classes)
-
-        weight_per_class_dict = {'uniform': torch.tensor([1.0] * num_classes),
-                                 'validclass': torch.tensor([0.0] * num_classes),
-                                 'labeldist': torch.tensor([0.0] * num_classes)}
-        for cls in self.label_dist.keys():
-            weight_per_class_dict['labeldist'][cls] = self.label_dist[cls]
-            weight_per_class_dict['validclass'][cls] = 1.0
-        # start testing
-        with torch.no_grad():
-            for i, (x, y) in enumerate(testloader):
-                # forward pass
-                x, y = x.to(self.device), y.to(self.device)
-                yhat = self.model.forward(x)
-                # stats
-                predicted = yhat.data.max(1)[1]
-                classes_shown_in_this_batch = torch.unique(y).cpu().numpy()
-                for cls in classes_shown_in_this_batch:
-                    test_correct_per_class[cls] += ((predicted == y) * (y == cls)).sum().item()
-        acc_by_critertia_dict = {}
-        for k in weight_per_class_dict.keys():
-            acc_by_critertia_dict[k] = (((weight_per_class_dict[k] * test_correct_per_class).sum()) /
-                                        ((weight_per_class_dict[k] * test_count_per_class).sum())).item()
-
-        self.test_acc_dict[round] = {'acc_by_criteria': acc_by_critertia_dict,
-                                     'correct_per_class': test_correct_per_class,
-                                     'weight_per_class': weight_per_class_dict}
-
 
 class FedUHServer(FedAvgServer):
     def __init__(self, server_config, clients_dict, exclude, cs_method, **kwargs):

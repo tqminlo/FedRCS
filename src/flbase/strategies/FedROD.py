@@ -219,6 +219,7 @@ class FedRODClient(FedAvgClient):
         num_classes = self.client_config['num_classes']
         test_count_per_class = torch.tensor([test_count_per_class[cls] * 1.0 for cls in range(num_classes)])
         test_correct_per_class = torch.tensor([0] * num_classes)
+        test_TN_per_class = torch.tensor([0] * num_classes)
 
         weight_per_class_dict = {'uniform': torch.tensor([1.0] * num_classes),
                                  'validclass': torch.tensor([0.0] * num_classes),
@@ -242,13 +243,16 @@ class FedRODClient(FedAvgClient):
                     out = out_p + out_g
                 # stats
                 predicted = out.data.max(1)[1]
-                classes_shown_in_this_batch = torch.unique(y).cpu().numpy()
-                for cls in classes_shown_in_this_batch:
+                for cls in range(num_classes):
                     test_correct_per_class[cls] += ((predicted == y) * (y == cls)).sum().item()
+                    test_TN_per_class[cls] += ((predicted != cls) * (y != cls)).sum().item()
         acc_by_critertia_dict = {}
         for k in weight_per_class_dict.keys():
             acc_by_critertia_dict[k] = (((weight_per_class_dict[k] * test_correct_per_class).sum()) /
                                         ((weight_per_class_dict[k] * test_count_per_class).sum())).item()
+        
+        acc_by_critertia_dict["BACC"] = ((test_correct_per_class / test_count_per_class +
+                                         test_TN_per_class / (test_count_per_class.sum() - test_count_per_class)) / 2).mean()
 
         self.test_acc_dict[round] = {'acc_by_criteria': acc_by_critertia_dict,
                                      'correct_per_class': test_correct_per_class,

@@ -141,7 +141,7 @@ def run(args):
             if args.strategy in k:
                 print(' ', k, ":", client_config[k])
         server.run(filename=path + '_best_global_model.pkl', use_wandb=use_wandb, global_seed=args.global_seed, num_epochs=args.num_epochs,
-                   save_global=args.save_global, metric=args.metric)
+                   save_global=args.save_global, metric=args.metric, T21=args.T21, l=args.l)
         if args.save_global:
             server.save(filename=path + '_final_server_obj.pkl', keep_clients_model=args.keep_clients_model)
     else:
@@ -196,7 +196,6 @@ if __name__ == "__main__":
     parser.add_argument('--beta', default=None, type=str, help='Dirichlet Distribution parameter')
     parser.add_argument('--num_classes_per_client', default=None, type=int, help='pathological non-iid parameter')
     parser.add_argument('--num_shards_per_client', default=None, type=int, help='pathological non-iid parameter fedavg simulation')
-
     # strategy parameters
     parser.add_argument('--FedNH_smoothing', default=0.9, type=float, help='moving average parameters')
     parser.add_argument('--FedNH_server_adv_prototype_agg', default=False, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='FedNH server adv agg')
@@ -204,6 +203,9 @@ if __name__ == "__main__":
     parser.add_argument('--FedROD_hyper_clf', default=True, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='FedRod phead uses hypernetwork')
     parser.add_argument('--FedROD_phead_separate', default=False, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='FedROD phead separate train')
     parser.add_argument('--Ditto_lambda', default=0.75, type=float, help='penalty parameter for Ditto')
+    # FedMCS parameters
+    parser.add_argument('--T21', default=5, type=int, help='FedMCS T21')
+    parser.add_argument('--l', default=3, type=int, help='FedMCS l')
 
     args = parser.parse_args()
     run(args)

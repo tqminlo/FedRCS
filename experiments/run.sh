@@ -1,6 +1,6 @@
-python ../main.py  --purpose BrainTumorResnetAvgb1.0 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvg --global_seed 0
+#python ../main.py  --purpose BrainTumorResnetAvgb1.0 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvg --global_seed 0
 
-python ../main.py  --purpose BrainTumorResnetAvgb1.0 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvgCS10 --global_seed 0
+#python ../main.py  --purpose BrainTumorResnetAvgb1.0 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvgCS10 --global_seed 0
 
 #python ../main.py  --purpose BrainTumorResnetAvgb1.0 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvg --global_seed 1000
 
@@ -10,9 +10,9 @@ python ../main.py  --purpose BrainTumorResnetAvgb1.0 --device cuda:1 --yamlfile 
 
 #python ../main.py  --purpose BrainTumorResnetAvgb1.0 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvgCS10 --global_seed 2000
 
-python ../main.py  --purpose BrainTumorResnetAvgb0.3 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 0.3 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvg --global_seed 1000
+#python ../main.py  --purpose BrainTumorResnetAvgb0.3 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 0.3 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvg --global_seed 1000
 
-python ../main.py  --purpose BrainTumorResnetAvgb0.3 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 0.3 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvgCS10 --global_seed 1000
+#python ../main.py  --purpose BrainTumorResnetAvgb0.3 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 0.3 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvgCS10 --global_seed 1000
 
 #python ../main.py  --purpose BrainTumorResnetAvgb0.3 --device cuda:1 --yamlfile ./BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 0.3 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvg --global_seed 1000
 
@@ -88,11 +88,26 @@ python ../main.py  --purpose BrainTumorResnetAvgb0.3 --device cuda:1 --yamlfile 
 #python ../main.py  --purpose ICHb0.3 --device cuda:1 --yamlfile ./ICH.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 0.3 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --strategy FedNHCS7 --use_wandb True --global_seed 0
 
 
-python main.py  --purpose Cifar10Avgb1.0 --device cuda:0 --yamlfile ./experiments/Cifar10_Conv2Cifar.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb False --strategy FedAvg --cs_method Random --global_seed 5000
-
-python main.py  --purpose ICHb1.0 --device cuda:0 --yamlfile ./experiments/ICH.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb False --strategy FedAvg --cs_method Random --optimizer Adam --global_seed 0
-
-python main.py  --purpose BrainRODRes18b1.0 --device cuda:0 --yamlfile ./experiments/BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb False --strategy FedROD --cs_method Random --global_seed 5000
 
 
-python main.py  --purpose Cifar10Avgb0-3 --device cuda:1 --yamlfile ./experiments/Cifar10_Conv2Cifar.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 0.3 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvg --cs_method Random --global_seed 3000
+
+
+
+
+
+
+
+
+
+
+
+
+
+#python main.py  --purpose Cifar10Avgb1.0 --device cuda:0 --yamlfile ./experiments/Cifar10_Conv2Cifar.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb False --strategy FedAvg --cs_method Random --global_seed 5000
+
+#python main.py  --purpose ICHAvgb1.0 --device cuda:1 --yamlfile ./experiments/ICH.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb False --strategy FedAvg --cs_method Random --optimizer Adam --metric bacc --global_seed 0
+
+#python main.py  --purpose BrainRODRes18b1.0 --device cuda:0 --yamlfile ./experiments/BrainMRI.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 1.0 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb False --strategy FedROD --cs_method Random --global_seed 5000
+
+
+#python main.py  --purpose Cifar10Avgb0-3 --device cuda:1 --yamlfile ./experiments/Cifar10_Conv2Cifar.yaml --num_clients 100 --participate_ratio 0.1 --partition noniid-label-distribution --beta 0.3 --num_rounds 200 --client_lr 0.01 --client_lr_scheduler diminishing --sgd_momentum 0.9 --sgd_weight_decay 1e-05 --num_epochs 5 --use_wandb True --strategy FedAvg --cs_method Random --global_seed 3000
