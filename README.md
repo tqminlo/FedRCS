@@ -7,7 +7,7 @@ Aggregation methods: **FedAvg**, **FedNH**, **FedROD**
 
 Client Selection methods: **Random**, **Cluster1**, **FedMCS**
 
-Other CS methods: **FedMCSv1** (old version), __FedMCS*__ (ranking use entropy score),  **FedMCSda**, **FedMCSag**, **FedMCSag** (other versions in ranking phase of *FedMCS*)
+Other CS methods: **FedMCSv1** (old version of *FedMCS*), __FedMCS*__ (ranking using entropy score),  **FedMCSda**, **FedMCSag**, **FedMCSag** (other versions in ranking phase of *FedMCS*)
 
 Example for *Cifar10-Dirichlet(0.3)-FedAvg-FedMCS* experiment:
 
