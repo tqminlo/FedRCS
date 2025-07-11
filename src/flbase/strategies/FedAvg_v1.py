@@ -127,7 +127,11 @@ class FedAvgClient(Client):
         print("**********************")
         acc_by_critertia_dict["BACC"] = ((test_correct_per_class / test_count_per_class +
                                           test_TN_per_class / (
+<<<<<<< HEAD
                                                       test_count_per_class.sum() - test_count_per_class)) / 2).mean()
+=======
+                                                  test_count_per_class.sum() - test_count_per_class)) / 2).mean()
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
 
         self.test_acc_dict[round] = {'acc_by_criteria': acc_by_critertia_dict,
                                      'correct_per_class': test_correct_per_class,
@@ -375,10 +379,17 @@ class FedAvgServer(Server):
             elif self.cs_method == "FedMCS":
                 if r <= 10:
                     self.active_clients_indicies = np.arange((r - 1) * 10, r * 10)
+<<<<<<< HEAD
                 elif r <= 10+kwargs["T21"]:
                     self.active_clients_indicies = self.sort_client[0]
                 elif 10+kwargs["T21"] < r <= 10+kwargs["T21"] + 15*kwargs["l"]:
                     rr = (r - 11-kwargs["T21"]) % 15
+=======
+                elif r <= 10 + kwargs["T21"]:
+                    self.active_clients_indicies = self.sort_client[0]
+                elif 10 + kwargs["T21"] < r <= 10 + kwargs["T21"] + 15 * kwargs["l"]:
+                    rr = (r - 11 - kwargs["T21"]) % 15
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
                     k = int(np.abs(np.sqrt(2 * (rr + 1) + 1 / 4) - 1 / 2))
                     residual = int((rr + 1) - k * (k + 1) / 2)
                     if residual == 1:
@@ -422,6 +433,7 @@ class FedAvgServer(Server):
                 for k in range(self.n_cluster):
                     weights = self.distri_clusters[k]
                     self.active_clients_indicies[k] = int(np.random.choice(all_idx, 1, p=weights / sum(weights)))
+<<<<<<< HEAD
                     
             elif self.cs_method == "FedMCS3":
                 if r <= 10:
@@ -430,6 +442,16 @@ class FedAvgServer(Server):
                     self.active_clients_indicies = self.sort_client[0]
                 elif 10+kwargs["T21"] < r <= 10+kwargs["T21"] + 15*kwargs["l"]:
                     rr = (r - 11-kwargs["T21"]) % 15
+=======
+
+            elif self.cs_method == "FedMCS3":
+                if r <= 10:
+                    self.active_clients_indicies = np.arange((r - 1) * 10, r * 10)
+                elif r <= 10 + kwargs["T21"]:
+                    self.active_clients_indicies = self.sort_client[0]
+                elif 10 + kwargs["T21"] < r <= 10 + kwargs["T21"] + 15 * kwargs["l"]:
+                    rr = (r - 11 - kwargs["T21"]) % 15
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
                     k = int(np.abs(np.sqrt(2 * (rr + 1) + 1 / 4) - 1 / 2))
                     residual = int((rr + 1) - k * (k + 1) / 2)
                     if residual == 1:
@@ -446,6 +468,7 @@ class FedAvgServer(Server):
                     idx_each_group = np.random.randint(10, size=(10,))
                     rows = np.arange(10)
                     self.active_clients_indicies = self.sort_client[rows, idx_each_group]
+<<<<<<< HEAD
                     
             elif self.cs_method == "FedMCS4":   # colab FedMCS vs Cluster1
                 if r <= 10:
@@ -454,6 +477,16 @@ class FedAvgServer(Server):
                     self.active_clients_indicies = self.sort_client[0]
                 elif 10+kwargs["T21"] < r <= 10+kwargs["T21"] + 15*kwargs["l"]:
                     rr = (r - 11-kwargs["T21"]) % 15
+=======
+
+            elif self.cs_method == "FedMCS4":  # colab FedMCS vs Cluster1
+                if r <= 10:
+                    self.active_clients_indicies = np.arange((r - 1) * 10, r * 10)
+                elif r <= 10 + kwargs["T21"]:
+                    self.active_clients_indicies = self.sort_client[0]
+                elif 10 + kwargs["T21"] < r <= 10 + kwargs["T21"] + 15 * kwargs["l"]:
+                    rr = (r - 11 - kwargs["T21"]) % 15
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
                     k = int(np.abs(np.sqrt(2 * (rr + 1) + 1 / 4) - 1 / 2))
                     residual = int((rr + 1) - k * (k + 1) / 2)
                     if residual == 1:

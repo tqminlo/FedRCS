@@ -73,6 +73,7 @@ class Conv2CifarNH(Model):
             return logits
 
 
+<<<<<<< HEAD
 class ResNetMod(Model):
     def __init__(self, config):
         super().__init__(config)
@@ -127,6 +128,8 @@ class ResNetModNH(Model):
             return logits
 
 
+=======
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
 class VGG16(Model):
     def __init__(self, config):
         super().__init__(config)
@@ -170,6 +173,7 @@ class VGG16NH(Model):
             nn.Flatten(),
             nn.Dropout(0.5),
             nn.Linear(2 * 2 * 512, 128),
+<<<<<<< HEAD
             nn.ReLU())
         self.fc1 = nn.Sequential(
             nn.Dropout(0.5),
@@ -242,6 +246,8 @@ class VGG16sNH(Model):
             nn.Flatten(),
             nn.Dropout(0.5),
             nn.Linear(8 * 8 * 256, 128),
+=======
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
             nn.ReLU())
         self.fc1 = nn.Sequential(
             nn.Dropout(0.5),
@@ -315,7 +321,7 @@ class ResNet18NH(Model):
         feature_embedding = torch.div(feature_embedding, feature_embedding_norm)
         if self.prototype.requires_grad == False:
             normalized_prototype = self.prototype
-        else: 
+        else:
             prototype_norm = torch.norm(self.prototype, p=2, dim=1, keepdim=True).clamp(min=1e-12)
             normalized_prototype = torch.div(self.prototype, prototype_norm)
         logits = torch.matmul(feature_embedding, normalized_prototype.T)
@@ -325,8 +331,11 @@ class ResNet18NH(Model):
             return feature_embedding, logits
         else:
             return logits
-            
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
 class ResNet18Cifar(Model):
     def __init__(self, config):
         super().__init__(config)
@@ -371,7 +380,11 @@ class ResNet18CifarNH(Model):
         feature_embedding = torch.div(feature_embedding, feature_embedding_norm)
         if self.prototype.requires_grad == False:
             normalized_prototype = self.prototype
+<<<<<<< HEAD
         else: 
+=======
+        else:
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
             prototype_norm = torch.norm(self.prototype, p=2, dim=1, keepdim=True).clamp(min=1e-12)
             normalized_prototype = torch.div(self.prototype, prototype_norm)
         logits = torch.matmul(feature_embedding, normalized_prototype.T)
@@ -381,15 +394,26 @@ class ResNet18CifarNH(Model):
             return feature_embedding, logits
         else:
             return logits
+<<<<<<< HEAD
             
             
+=======
+
+
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
 class MLP2(Model):
     def __init__(self, config):
         dim = 128
         super().__init__(config)
         self.fc1 = nn.Linear(784, dim * 8)
+<<<<<<< HEAD
         self.fc2 = nn.Linear(dim * 8, dim * 2)
         self.fc3 = nn.Linear(dim * 2, dim)
+=======
+        self.fc2 = nn.Linear(dim * 8, dim * 4)
+        self.fc3 = nn.Linear(dim * 4, dim * 2)
+        self.fc4 = nn.Linear(dim * 2, dim)
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         self.prototype = nn.Linear(dim, config['num_classes'], bias=False)
 
     def forward(self, x):
@@ -397,14 +421,25 @@ class MLP2(Model):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
+<<<<<<< HEAD
         logits = self.prototype(x)
         return logits
         
+=======
+        x = F.relu(self.fc4(x))
+        logits = self.prototype(x)
+        return logits
+
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
     def get_embedding(self, x):
         x = nn.Flatten()(x)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
+<<<<<<< HEAD
+=======
+        x = F.relu(self.fc4(x))
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         logits = self.prototype(x)
         return x, logits
 
@@ -413,9 +448,17 @@ class MLP2NH(Model):
     def __init__(self, config):
         dim = 128
         super().__init__(config)
+<<<<<<< HEAD
         self.fc1 = nn.Linear(784, dim * 8)
         self.fc2 = nn.Linear(dim * 8, dim * 2)
         self.fc3 = nn.Linear(dim * 2, dim)
+=======
+        self.return_embedding = config['FedNH_return_embedding']
+        self.fc1 = nn.Linear(784, dim * 8)
+        self.fc2 = nn.Linear(dim * 8, dim * 4)
+        self.fc3 = nn.Linear(dim * 4, dim * 2)
+        self.fc4 = nn.Linear(dim * 2, dim)
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         temp = nn.Linear(dim, config['num_classes'], bias=False).state_dict()['weight']
         self.prototype = nn.Parameter(temp)
         self.scaling = torch.nn.Parameter(torch.tensor([1.0]))
@@ -424,6 +467,7 @@ class MLP2NH(Model):
         x = nn.Flatten()(x)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
+<<<<<<< HEAD
         feature_embedding = F.relu(self.fc3(x))
         feature_embedding_norm = torch.norm(feature_embedding, p=2, dim=1, keepdim=True).clamp(min=1e-12)
         feature_embedding = torch.div(feature_embedding, feature_embedding_norm)
@@ -490,6 +534,10 @@ class Conv2BrainNH(Model):
         x = x.view(-1, 64 * 13 * 13)
         x = F.relu(self.linear1(x))
         feature_embedding = F.relu(self.linear2(x))
+=======
+        x = F.relu(self.fc3(x))
+        feature_embedding = F.relu(self.fc4(x))
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         feature_embedding_norm = torch.norm(feature_embedding, p=2, dim=1, keepdim=True).clamp(min=1e-12)
         feature_embedding = torch.div(feature_embedding, feature_embedding_norm)
         if self.prototype.requires_grad == False:

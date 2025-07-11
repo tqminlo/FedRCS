@@ -62,8 +62,13 @@ class FedAvgClient(Client):
         for i in range(num_epochs):
             epoch_loss, correct = 0.0, 0
             for j, (x, y) in enumerate(self.trainloader):
+<<<<<<< HEAD
                 # if len(y) == 1:
                 #     continue
+=======
+                if len(y) == 1:
+                    continue
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
                 # forward pass
                 x, y = x.to(self.device), y.to(self.device)
                 yhat = self.model.forward(x)
@@ -157,26 +162,42 @@ class FedAvgServer(Server):
         self.cs_method = cs_method
 
         self.sort_client_entropy = np.zeros(shape=(10, 10), dtype=int)
+<<<<<<< HEAD
         self.sort_client_ref = np.arange(100,).reshape((10, 10))
+=======
+        self.sort_client_ref = np.zeros(shape=(10, 10), dtype=int)
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         self.sort_client = np.arange(100,).reshape((10, 10))
 
         self.cluster1_setup(clients_dict)
 
+<<<<<<< HEAD
         self.validloader = DataLoader(kwargs["global_validset"], batch_size=128, shuffle=False) if kwargs["global_validset"] else None
 
+=======
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
     def ranking(self, client_uploads, round):
         res = round % 55
         assert 1 <= res <= 10, "false round"
 
+<<<<<<< HEAD
         D_list = []
+=======
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         mul_acc_list = []
         entropy_list = []
         ref_list = []
         for idx, (client_state_dict, count_per_class_client, ref_score) in enumerate(client_uploads):
+<<<<<<< HEAD
+=======
+            self.server_side_client.set_params(client_state_dict, self.exclude_layer_keys)
+            self.server_side_client.testing(round, testloader=None)  # use global testdataset
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
             count_per_class_test = Counter(self.server_side_client.testloader.dataset.targets.numpy())
             num_classes = self.server_side_client.client_config['num_classes']
             count_per_class_test = torch.tensor([count_per_class_test[cls] * 1.0 for cls in range(num_classes)])
             # print("---check count_by_class_testset : ", count_per_class_test)
+<<<<<<< HEAD
             # print("---check count_by_class_client : ", count_per_class_client)
             num_data_in_client = torch.sum(count_per_class_client)
             # print("---check num_data_in_client : ", num_data_in_client)
@@ -189,12 +210,35 @@ class FedAvgServer(Server):
             # print("---check acc_per_class : ", acc_per_class)
             mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test))
             mul_acc_list.append(mul_acc.cpu().numpy())
+=======
+            print("---check count_by_class_client : ", count_per_class_client)
+            num_data_in_client = torch.sum(count_per_class_client)
+            print("---check num_data_in_client : ", num_data_in_client)
+            self.gfl_test_acc_dict[round] = self.server_side_client.test_acc_dict[round]
+            acc_per_class = self.gfl_test_acc_dict[round]['correct_per_class']
+            print("---check acc_per_class : ", acc_per_class)
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
 
             entropy_list.append(ref_score[0])
             ref_list.append(ref_score[1])
 
+<<<<<<< HEAD
         # Calculate gradient list
         gradients_list = []
+=======
+            mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test)) * num_data_in_client
+            mul_acc_list.append(mul_acc.cpu().numpy())
+
+        print("---check mul_acc_list : ", mul_acc_list)
+
+        sorted_idx_acc = [x for _, x in sorted(zip(mul_acc_list, self.active_clients_indicies), reverse=True)]
+        sorted_idx_acc = np.array(sorted_idx_acc)
+        print("---check sorted_idx_acc : ", sorted_idx_acc)
+
+        # Calculate gradient list
+        gradients_list = []
+        # num_samples_list = []
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         for idx, (client_state_dict, count_per_class_client, _) in enumerate(client_uploads):
             gradient = []
             for state_key in client_state_dict.keys():
@@ -203,6 +247,10 @@ class FedAvgServer(Server):
                     gradient.append(g.cpu().numpy().flatten())
             gradient = np.concatenate(gradient, axis=0)
             gradients_list.append(gradient)
+<<<<<<< HEAD
+=======
+            # num_samples_list.append(torch.sum(count_per_class_client))
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
 
         weights = torch.tensor([1] * 10)
         # weights = torch.tensor(num_samples_list)
@@ -213,6 +261,7 @@ class FedAvgServer(Server):
         gradient_global = torch.sum(gradient_global, 0)
         cosin_similary_list = [torch.nn.CosineSimilarity(dim=0)(gradient_global, grad_k) for grad_k in
                                gradients_list]
+<<<<<<< HEAD
 
         # Sort
         # D_list = torch.tensor(np.array(D_list))
@@ -236,6 +285,28 @@ class FedAvgServer(Server):
         print("---check ref_list : ", ref_list)
         print("---check active_clients_indicies : ", self.active_clients_indicies)
 
+=======
+        print("---check cosin_similary_list : ", cosin_similary_list)
+        sorted_idx_grad = np.array(
+            [x for _, x in sorted(zip(cosin_similary_list, self.active_clients_indicies), reverse=True)])
+        print("---check sorted_idx_grad : ", sorted_idx_grad)
+
+        # Sort
+        mul_acc_list = torch.tensor(np.array(mul_acc_list))
+        score_final = [mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
+        sorted_idx = np.array(
+            [x for _, x in sorted(zip(score_final, self.active_clients_indicies), reverse=True)])
+        print("---check sorted_idx_score : ", sorted_idx)
+        self.sort_client[res - 1] = sorted_idx
+
+        print("---check entropy_list : ", entropy_list)
+        sorted_entropy = np.array(
+            [x for _, x in sorted(zip(entropy_list, self.active_clients_indicies), reverse=True)])
+        print("---check sorted_entropy : ", sorted_entropy)
+        self.sort_client_entropy[res - 1] = sorted_entropy
+
+        print("---check ref_list : ", ref_list)
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         sorted_ref = np.array([x for _, x in sorted(zip(ref_list, self.active_clients_indicies), reverse=True)])
         print("---check sorted_ref : ", sorted_ref)
         self.sort_client_ref[res - 1] = sorted_ref
@@ -245,6 +316,13 @@ class FedAvgServer(Server):
             print("---check self.sort_client : ")
             print(self.sort_client)
 
+<<<<<<< HEAD
+=======
+            self.sort_client_entropy = self.sort_client_entropy.transpose()
+            print("---check self.sort_client_entropy : ")
+            print(self.sort_client_entropy)
+
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
             self.sort_client_ref = self.sort_client_ref.transpose()
             print("---check self.sort_client_ref : ")
             print(self.sort_client_ref)
@@ -390,7 +468,11 @@ class FedAvgServer(Server):
                 else:
                     self.active_clients_indicies = self.select_clients(self.server_config['participate_ratio'])
 
+<<<<<<< HEAD
             elif self.cs_method in ["FedMCS5", "FedMCS*", "FedMCSda", "FedMCSdg", "FedMCSag"]:
+=======
+            elif self.cs_method == "FedMCS5":
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
                 if r <= 10:
                     self.active_clients_indicies = self.sort_client[r-1]
                 else:

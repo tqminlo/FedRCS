@@ -875,7 +875,10 @@ get datasets
 
 def get_datasets(datasetname, **kwargs):
     invTrans = None
+<<<<<<< HEAD
     validset = None
+=======
+>>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
     if datasetname == "FashionMNIST":
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
