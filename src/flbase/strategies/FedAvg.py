@@ -183,7 +183,7 @@ class FedAvgServer(Server):
             D_list.append(num_data_in_client)
 
             self.server_side_client.set_params(client_state_dict, self.exclude_layer_keys)
-            self.server_side_client.testing(round, testloader=self.validloader)  # use global testdataset
+            self.server_side_client.testing(round, testloader=None)     # for Cifar10 exps, if use proxy set: testloader=self.validloader
             self.gfl_test_acc_dict[round] = self.server_side_client.test_acc_dict[round]
             acc_per_class = self.gfl_test_acc_dict[round]['correct_per_class']
             # print("---check acc_per_class : ", acc_per_class)
