@@ -47,11 +47,7 @@ server_config:
 
 client_config:
   # network used for each client
-<<<<<<< HEAD
   model: Conv2Brain
-=======
-  model: VGG16
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
   # network specific setting goes here
 
   # dataset setting

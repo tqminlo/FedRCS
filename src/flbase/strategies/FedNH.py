@@ -106,25 +106,16 @@ class FedNHServer(FedUHServer):
         res = round % 55
         assert 1 <= res <= 10, "false round"
 
-<<<<<<< HEAD
         D_list = []
-=======
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         mul_acc_list = []
         entropy_list = []
         ref_list = []
         for idx, (client_state_dict, prototype_dict, ref_score) in enumerate(client_uploads):
-<<<<<<< HEAD
-=======
-            self.server_side_client.set_params(client_state_dict, self.exclude_layer_keys)
-            self.server_side_client.testing(round, testloader=None)  # use global testdataset
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
             count_per_class_test = Counter(self.server_side_client.testloader.dataset.targets.numpy())
             num_classes = self.server_side_client.client_config['num_classes']
             count_per_class_test = torch.tensor([count_per_class_test[cls] * 1.0 for cls in range(num_classes)])
             # print("---check count_by_class_testset : ", count_per_class_test)
             count_per_class_client = prototype_dict['count_by_class_full']
-<<<<<<< HEAD
             # print("---check count_by_class_client : ", count_per_class_client)
             num_data_in_client = torch.sum(count_per_class_client)
             # print("---check num_data_in_client : ", num_data_in_client)
@@ -137,35 +128,12 @@ class FedNHServer(FedUHServer):
             # print("---check acc_per_class : ", acc_per_class)
             mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test))
             mul_acc_list.append(mul_acc.cpu().numpy())
-=======
-            print("---check count_by_class_client : ", count_per_class_client)
-            num_data_in_client = torch.sum(count_per_class_client)
-            print("---check num_data_in_client : ", num_data_in_client)
-            self.gfl_test_acc_dict[round] = self.server_side_client.test_acc_dict[round]
-            acc_per_class = self.gfl_test_acc_dict[round]['correct_per_class']
-            print("---check acc_per_class : ", acc_per_class)
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
 
             entropy_list.append(ref_score[0])
             ref_list.append(ref_score[1])
 
-<<<<<<< HEAD
         # Calculate gradient list
         gradients_list = []
-=======
-            mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test)) * num_data_in_client
-            mul_acc_list.append(mul_acc.cpu().numpy())
-
-        print("---check mul_acc_list : ", mul_acc_list)
-
-        sorted_idx_acc = [x for _, x in sorted(zip(mul_acc_list, self.active_clients_indicies), reverse=True)]
-        sorted_idx_acc = np.array(sorted_idx_acc)
-        print("---check sorted_idx_acc : ", sorted_idx_acc)
-
-        # Calculate gradient list
-        gradients_list = []
-        # num_samples_list = []
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         for idx, (client_state_dict, prototype_dict, _) in enumerate(client_uploads):
             gradient = []
             for state_key in client_state_dict.keys():
@@ -174,10 +142,6 @@ class FedNHServer(FedUHServer):
                     gradient.append(g.cpu().numpy().flatten())
             gradient = np.concatenate(gradient, axis=0)
             gradients_list.append(gradient)
-<<<<<<< HEAD
-=======
-            # num_samples_list.append(torch.sum(count_per_class_client))
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
 
         weights = torch.tensor([1] * 10)
         # weights = torch.tensor(num_samples_list)
@@ -188,7 +152,6 @@ class FedNHServer(FedUHServer):
         gradient_global = torch.sum(gradient_global, 0)
         cosin_similary_list = [torch.nn.CosineSimilarity(dim=0)(gradient_global, grad_k) for grad_k in
                                gradients_list]
-<<<<<<< HEAD
 
         # Sort
         # D_list = torch.tensor(np.array(D_list))
@@ -205,32 +168,13 @@ class FedNHServer(FedUHServer):
         else:  # FedMCS5
             score_final = [D_list[i] * mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
 
-=======
-        print("---check cosin_similary_list : ", cosin_similary_list)
-        sorted_idx_grad = np.array(
-            [x for _, x in sorted(zip(cosin_similary_list, self.active_clients_indicies), reverse=True)])
-        print("---check sorted_idx_grad : ", sorted_idx_grad)
-
-        # Sort
-        mul_acc_list = torch.tensor(np.array(mul_acc_list))
-        score_final = [mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         sorted_idx = np.array(
             [x for _, x in sorted(zip(score_final, self.active_clients_indicies), reverse=True)])
         print("---check sorted_idx_score : ", sorted_idx)
         self.sort_client[res - 1] = sorted_idx
 
-<<<<<<< HEAD
         print("---check ref_list : ", ref_list)
 
-=======
-        print("---check entropy_list : ", entropy_list)
-        sorted_entropy = np.array([x for _, x in sorted(zip(entropy_list, self.active_clients_indicies), reverse=True)])
-        print("---check sorted_entropy : ", sorted_entropy)
-        self.sort_client_entropy[res - 1] = sorted_entropy
-
-        print("---check ref_list : ", ref_list)
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         sorted_ref = np.array([x for _, x in sorted(zip(ref_list, self.active_clients_indicies), reverse=True)])
         print("---check sorted_ref : ", sorted_ref)
         self.sort_client_ref[res - 1] = sorted_ref
@@ -240,13 +184,6 @@ class FedNHServer(FedUHServer):
             print("---check self.sort_client : ")
             print(self.sort_client)
 
-<<<<<<< HEAD
-=======
-            self.sort_client_entropy = self.sort_client_entropy.transpose()
-            print("---check self.sort_client_entropy : ")
-            print(self.sort_client_entropy)
-
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
             self.sort_client_ref = self.sort_client_ref.transpose()
             print("---check self.sort_client_ref : ")
             print(self.sort_client_ref)

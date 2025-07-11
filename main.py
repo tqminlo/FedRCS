@@ -142,11 +142,7 @@ def run(args):
             if args.strategy in k:
                 print(' ', k, ":", client_config[k])
         server.run(filename=path + '_best_global_model.pkl', use_wandb=use_wandb, global_seed=args.global_seed, num_epochs=args.num_epochs,
-<<<<<<< HEAD
                    save_global=args.save_global, metric=args.metric)
-=======
-                   save_global=args.save_global, metric=args.metric, T21=args.T21, l=args.l)
->>>>>>> ebb23b9832dc61af2d903c511c954096fcb5628d
         if args.save_global:
             server.save(filename=path + '_final_server_obj.pkl', keep_clients_model=args.keep_clients_model)
     else:
@@ -208,9 +204,6 @@ if __name__ == "__main__":
     parser.add_argument('--FedROD_hyper_clf', default=True, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='FedRod phead uses hypernetwork')
     parser.add_argument('--FedROD_phead_separate', default=False, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='FedROD phead separate train')
     parser.add_argument('--Ditto_lambda', default=0.75, type=float, help='penalty parameter for Ditto')
-    # FedMCS parameters
-    parser.add_argument('--T21', default=5, type=int, help='FedMCS T21')
-    parser.add_argument('--l', default=3, type=int, help='FedMCS l')
 
     args = parser.parse_args()
     run(args)
