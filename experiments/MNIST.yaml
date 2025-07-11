@@ -47,7 +47,7 @@ server_config:
 
 client_config:
   # network used for each client
-  model: ConvMNIST
+  model: MLP2
   # network specific setting goes here
 
   # dataset setting

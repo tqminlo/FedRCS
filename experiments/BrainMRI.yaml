@@ -47,7 +47,7 @@ server_config:
 
 client_config:
   # network used for each client
-  model: ResNet18
+  model: Conv2Brain
   # network specific setting goes here
 
   # dataset setting

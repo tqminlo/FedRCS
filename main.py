@@ -105,10 +105,11 @@ def run(args):
     client_config_lst = [client_config for i in range(args.num_clients)]
     criterion = nn.CrossEntropyLoss()
 
-    trainset, testset, _ = get_datasets(server_config['dataset'])
+    trainset, testset, validset, _ = get_datasets(server_config['dataset'])
 
     # setup clients
     if server_config['split_testset'] == False:
+        print("***************")
         clients_dict = setup_clients(ClientCstr, trainset, None, criterion,
                                      client_config_lst, args.device,
                                      server_config=server_config,
@@ -129,7 +130,7 @@ def run(args):
     # setup server and run
     if args.strategy != 'Local':
         server = ServerCstr(server_config, clients_dict, exclude=server_config['exclude'], cs_method=args.cs_method,
-                            server_side_criterion=criterion, global_testset=testset, global_trainset=trainset,
+                            server_side_criterion=criterion, global_testset=testset, global_trainset=trainset, global_validset=validset,
                             client_cstr=ClientCstr, server_side_client_config=client_config, server_side_client_device=args.device)
         print('Strategy Related Hyper-parameters:')
         print(' server side')
@@ -141,7 +142,7 @@ def run(args):
             if args.strategy in k:
                 print(' ', k, ":", client_config[k])
         server.run(filename=path + '_best_global_model.pkl', use_wandb=use_wandb, global_seed=args.global_seed, num_epochs=args.num_epochs,
-                   save_global=args.save_global)
+                   save_global=args.save_global, metric=args.metric)
         if args.save_global:
             server.save(filename=path + '_final_server_obj.pkl', keep_clients_model=args.keep_clients_model)
     else:
@@ -169,6 +170,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test Algorithms.')
     # general settings
     parser.add_argument('--purpose', default='experiments', type=str, help='purpose of this run')
+    parser.add_argument('--metric', default='acc', type=str, help='metric for each dataset')
     parser.add_argument('--device', default='cuda:1', type=str, help='cuda device')
     parser.add_argument('--global_seed', default=2022, type=int, help='Global random seed.')
     parser.add_argument('--use_wandb', default=True, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='Use wandb pkg')
@@ -195,7 +197,6 @@ if __name__ == "__main__":
     parser.add_argument('--beta', default=None, type=str, help='Dirichlet Distribution parameter')
     parser.add_argument('--num_classes_per_client', default=None, type=int, help='pathological non-iid parameter')
     parser.add_argument('--num_shards_per_client', default=None, type=int, help='pathological non-iid parameter fedavg simulation')
-
     # strategy parameters
     parser.add_argument('--FedNH_smoothing', default=0.9, type=float, help='moving average parameters')
     parser.add_argument('--FedNH_server_adv_prototype_agg', default=False, type=lambda x: (str(x).lower() in ['true', '1', 'yes']), help='FedNH server adv agg')

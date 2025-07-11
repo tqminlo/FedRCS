@@ -875,7 +875,8 @@ get datasets
 
 def get_datasets(datasetname, **kwargs):
     invTrans = None
-    if datasetname == "FashionMnist":
+    validset = None
+    if datasetname == "FashionMNIST":
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.1307,), (0.3081,))
@@ -885,7 +886,30 @@ def get_datasets(datasetname, **kwargs):
         testset = torchvision.datasets.FashionMNIST(root='~/data', train=False,
                                                     download=True, transform=transform)
 
+    elif datasetname == "EMNIST":
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        trainset = torchvision.datasets.EMNIST(root='~/data', split="letters", train=True,
+                                                     download=True, transform=transform)
+        testset = torchvision.datasets.EMNIST(root='~/data', split="letters", train=False,
+                                                    download=True, transform=transform)
+
+    elif datasetname == "MNIST":
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        trainset = torchvision.datasets.MNIST(root='~/data', train=True,
+                                              download=True, transform=transform)
+        testset = torchvision.datasets.MNIST(root='~/data', train=False,
+                                             download=True, transform=transform)
+
     elif datasetname == "Cifar10":
+        import sys
+        sys.path.append("../")
+        from data.dataset import Cifar10Valid
         transform_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
@@ -905,8 +929,10 @@ def get_datasets(datasetname, **kwargs):
                                                 download=True, transform=transform_train)
         testset = torchvision.datasets.CIFAR10(root='~/data', train=False,
                                                download=True, transform=transform_test)
+        validset = Cifar10Valid(root_dir="./data/Cifar_valid", transform=transform_test)
         trainset.targets = torch.tensor(trainset.targets)
         testset.targets = torch.tensor(testset.targets)
+        validset.targets = torch.tensor(validset.targets)
 
     elif datasetname == 'Cifar100':
         transform_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
@@ -952,8 +978,8 @@ def get_datasets(datasetname, **kwargs):
         test_transform = transforms.Compose([transforms.Resize((64, 64)),
                                              transforms.ToTensor(),
                                              ])
-        trainset = BrainTumorDataset(root_dir="../data/BrainMRI/Training", transform=train_transform)
-        testset = BrainTumorDataset(root_dir="../data/BrainMRI/Testing", transform=test_transform)
+        trainset = BrainTumorDataset(root_dir="./data/BrainMRI/Training", transform=train_transform)
+        testset = BrainTumorDataset(root_dir="./data/BrainMRI/Testing", transform=test_transform)
 
     elif datasetname == "ICH":
         import sys
@@ -968,15 +994,15 @@ def get_datasets(datasetname, **kwargs):
                                               ])
         test_transform = transforms.Compose([transforms.Resize((64, 64)),
                                              transforms.ToTensor(),
-                                              ####normalize,
+                                             ####normalize,
                                              ])
-        trainset = ICHDataset(root_dir="../data/ICH/train", transform=train_transform)
-        testset = ICHDataset(root_dir="../data/ICH/test", transform=test_transform)
+        trainset = ICHDataset(root_dir="./data/ICH/train", transform=train_transform)
+        testset = ICHDataset(root_dir="./data/ICH/test", transform=test_transform)
 
     else:
         raise ValueError(f"Unrecognized dataset:{datasetname}")
 
-    return trainset, testset, invTrans
+    return trainset, testset, validset, invTrans
 
     # if invTrans is not None:
     #     return trainset, testset, invTrans
