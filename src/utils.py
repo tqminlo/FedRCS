@@ -909,7 +909,7 @@ def get_datasets(datasetname, **kwargs):
     elif datasetname == "Cifar10":
         import sys
         sys.path.append("../")
-        from data.dataset import Cifar10Valid
+        from data.dataset import Cifar10Valid, Cifar10Pseudo
         transform_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
@@ -929,7 +929,8 @@ def get_datasets(datasetname, **kwargs):
                                                 download=True, transform=transform_train)
         testset = torchvision.datasets.CIFAR10(root='~/data', train=False,
                                                download=True, transform=transform_test)
-        validset = Cifar10Valid(root_dir="./data/Cifar_valid", transform=transform_test)
+        # validset = Cifar10Valid(root_dir="./data/Cifar_pseudo2", transform=transform_test)
+        validset = Cifar10Pseudo(root_dir="./data/Cifar_pseudo2", transform=transform_test)
         trainset.targets = torch.tensor(trainset.targets)
         testset.targets = torch.tensor(testset.targets)
         validset.targets = torch.tensor(validset.targets)

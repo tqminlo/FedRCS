@@ -19,6 +19,8 @@ import torch
 
 from torch.utils.data import DataLoader
 
+from itertools import product
+from scipy.cluster.hierarchy import fcluster, linkage
 
 class FedAvgClient(Client):
     def __init__(self, criterion, trainset, testset, client_config, cid, device, **kwargs):
@@ -107,6 +109,8 @@ class FedAvgClient(Client):
             weight_per_class_dict['labeldist'][cls] = self.label_dist[cls]
             weight_per_class_dict['validclass'][cls] = 1.0
         # start testing
+        predict_per_class = [0 for i in range(num_classes)]
+        prob_per_class = torch.tensor([0 for i in range(num_classes)])
         with torch.no_grad():
             for i, (x, y) in enumerate(testloader):
                 # forward pass
@@ -114,11 +118,14 @@ class FedAvgClient(Client):
                 yhat = self.model.forward(x)
                 # stats
                 predicted = yhat.data.max(1)[1]
+                prob_per_class_batch = torch.mean(torch.nn.Softmax(dim=-1)(yhat), dim=0)
+                prob_per_class = (prob_per_class * i + prob_per_class_batch) / (i+1)
                 #######classes_shown_in_this_batch = torch.unique(y).cpu().numpy()
                 #######for cls in classes_shown_in_this_batch:
                 for cls in range(num_classes):
                     test_correct_per_class[cls] += ((predicted == y) * (y == cls)).sum().item()
                     test_TN_per_class[cls] += ((predicted != cls) * (y != cls)).sum().item()
+                    predict_per_class[cls] += (predicted == cls).sum().item()
         acc_by_critertia_dict = {}
         for k in weight_per_class_dict.keys():
             acc_by_critertia_dict[k] = (((weight_per_class_dict[k] * test_correct_per_class).sum()) /
@@ -130,16 +137,24 @@ class FedAvgClient(Client):
 
         self.test_acc_dict[round] = {'acc_by_criteria': acc_by_critertia_dict,
                                      'correct_per_class': test_correct_per_class,
-                                     'weight_per_class': weight_per_class_dict}
+                                     'weight_per_class': weight_per_class_dict,
+                                     'predict_per_class': predict_per_class,
+                                     'prob_per_class': prob_per_class}
 
 
 class FedAvgServer(Server):
     def __init__(self, server_config, clients_dict, exclude, cs_method, **kwargs):
         super().__init__(server_config, clients_dict, **kwargs)
+        self.clients_dict = clients_dict
         self.summary_setup()
+        # print("----------")
+        # param = [tens.detach().to("cpu").flatten() for tens in list(self.clients_dict[0].model.parameters())]
+        # param = np.concatenate(param)
+        # print(param, len(param))
         self.server_model_state_dict = deepcopy(self.clients_dict[0].get_params())
         # make sure the starting point is correct
         self.server_side_client.set_params(self.server_model_state_dict, exclude_keys=set())
+        # print(self.server_side_client.model.parameters())
         self.exclude_layer_keys = set()
         for key in self.server_model_state_dict:
             for ekey in exclude:
@@ -169,29 +184,45 @@ class FedAvgServer(Server):
         assert 1 <= res <= 10, "false round"
 
         D_list = []
-        mul_acc_list = []
         entropy_list = []
         ref_list = []
-        for idx, (client_state_dict, count_per_class_client, ref_score) in enumerate(client_uploads):
+        for idx, (_, count_per_class_client, ref_score) in enumerate(client_uploads):
+            num_data_in_client = torch.sum(count_per_class_client)
+            D_list.append(num_data_in_client)
+            entropy_list.append(ref_score[0])
+            ref_list.append(ref_score[1])
+
+        mul_acc_list = []
+        for idx, (client_state_dict, _, _) in enumerate(client_uploads):
             count_per_class_test = Counter(self.server_side_client.testloader.dataset.targets.numpy())
             num_classes = self.server_side_client.client_config['num_classes']
             count_per_class_test = torch.tensor([count_per_class_test[cls] * 1.0 for cls in range(num_classes)])
-            # print("---check count_by_class_testset : ", count_per_class_test)
-            # print("---check count_by_class_client : ", count_per_class_client)
-            num_data_in_client = torch.sum(count_per_class_client)
-            # print("---check num_data_in_client : ", num_data_in_client)
-            D_list.append(num_data_in_client)
-
             self.server_side_client.set_params(client_state_dict, self.exclude_layer_keys)
-            self.server_side_client.testing(round, testloader=None)     # for Cifar10 exps, if use proxy set: testloader=self.validloader
+            self.server_side_client.testing(round, testloader=None)  # for Cifar10 exps, if use proxy set: testloader=self.validloader
             self.gfl_test_acc_dict[round] = self.server_side_client.test_acc_dict[round]
             acc_per_class = self.gfl_test_acc_dict[round]['correct_per_class']
             # print("---check acc_per_class : ", acc_per_class)
             mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test))
             mul_acc_list.append(mul_acc.cpu().numpy())
 
-            entropy_list.append(ref_score[0])
-            ref_list.append(ref_score[1])
+        entropy_pseudo = []
+        for idx, (client_state_dict, _, _) in enumerate(client_uploads):
+            self.server_side_client.set_params(client_state_dict, self.exclude_layer_keys)
+            self.server_side_client.testing(round, testloader=self.validloader) # use as a pseudo, not valid
+            self.gfl_test_acc_dict[round] = self.server_side_client.test_acc_dict[round]
+            # predict_per_class = self.gfl_test_acc_dict[round]['predict_per_class']
+            # print("---check predict_per_class : ", predict_per_class)
+            # # p = np.array(predict_per_class) / np.sum(np.array(predict_per_class)) + 1e-12
+            #             # # entropy = - np.sum(p * (np.log(p)))
+            #             # num_data_noise = sum(predict_per_class)
+            #             # num_classes = self.server_side_client.client_config['num_classes']
+            #             # num_noise_per_class = num_data_noise//num_classes
+            #             # p = np.clip(predict_per_class, 0, num_noise_per_class)
+            #             # entropy = np.prod(np.exp(p / num_noise_per_class))
+            prob_per_class = self.gfl_test_acc_dict[round]['prob_per_class'].cpu().numpy()
+            print("---check prob_per_class : ", prob_per_class)
+            entropy = np.prod(np.exp(prob_per_class))
+            entropy_pseudo.append(entropy)
 
         # Calculate gradient list
         gradients_list = []
@@ -205,7 +236,7 @@ class FedAvgServer(Server):
             gradients_list.append(gradient)
 
         weights = torch.tensor([1] * 10)
-        # weights = torch.tensor(num_samples_list)
+        # weights = torch.tensor(D_list)
         weights = weights / torch.sum(weights)
         weights_2d = weights.unsqueeze(1)
         gradients_list = torch.tensor(gradients_list)
@@ -226,16 +257,18 @@ class FedAvgServer(Server):
             score_final = [D_list[i] * mul_acc_list[i] for i in range(len(mul_acc_list))]
         elif self.cs_method == "FedMCS*":
             score_final = [ref_list[i] for i in range(len(mul_acc_list))]
-        else:   # FedMCS5
+        elif self.cs_method == "FedRCS":
+            score_final = [D_list[i] * entropy_pseudo[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
+        else:   # FedMCS
             score_final = [D_list[i] * mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
 
+        print("---check active_clients_indicies : ", self.active_clients_indicies)
         sorted_idx = np.array([x for _, x in sorted(zip(score_final, self.active_clients_indicies), reverse=True)])
         print("---check sorted_idx_score : ", sorted_idx)
         self.sort_client[res - 1] = sorted_idx
-
-        print("---check ref_list : ", ref_list)
         print("---check active_clients_indicies : ", self.active_clients_indicies)
 
+        print("---check ref_list : ", ref_list)
         sorted_ref = np.array([x for _, x in sorted(zip(ref_list, self.active_clients_indicies), reverse=True)])
         print("---check sorted_ref : ", sorted_ref)
         self.sort_client_ref[res - 1] = sorted_ref
@@ -296,18 +329,6 @@ class FedAvgServer(Server):
         self.server_side_client.testing(round, testloader=None)  # use global testdataset
         print(' server global model correct',
               torch.sum(self.server_side_client.test_acc_dict[round]['correct_per_class']).item())
-        # # test the performance for local models (potentiallt only for active local clients)
-        # client_indices = self.clients_dict.keys()
-        # if active_only:
-        #     client_indices = self.active_clients_indicies
-        # for cid in client_indices:
-        #     client = self.clients_dict[cid]
-        #     # test local model on the splitted testset
-        #     if self.server_config['split_testset'] == True:
-        #         client.testing(round, None)
-        #     else:
-        #         # test local model on the global testset
-        #         client.testing(round, self.server_side_client.testloader)
 
     def collect_stats(self, stage, round, active_only, **kwargs):
         """
@@ -372,38 +393,38 @@ class FedAvgServer(Server):
                 if r <= 10:
                     self.active_clients_indicies = np.arange((r - 1) * 10, r * 10)
                 elif r <= 10 + 5:
-                    self.active_clients_indicies = self.sort_client[0]
+                    self.active_clients_indicies = deepcopy(self.sort_client[0])
                 elif 10 + 5 < r <= 10 + 5 + 15 * 3:
                     rr = (r - 11 - kwargs["T21"]) % 15
                     k = int(np.abs(np.sqrt(2 * (rr + 1) + 1 / 4) - 1 / 2))
                     residual = int((rr + 1) - k * (k + 1) / 2)
                     if residual == 1:
-                        clients_consider = self.sort_client[:k + 1].flatten()
+                        clients_consider = deepcopy(self.sort_client[:k + 1]).flatten()
                         np.random.shuffle(clients_consider)
                         print("round :", r, "k :", k, "res :", residual)
                         print("client consider :", clients_consider)
                     elif residual == 0 and k == 1:
-                        clients_consider = self.sort_client[0]
+                        clients_consider = deepcopy(self.sort_client[0])
                         print("client consider :", clients_consider)
                     self.active_clients_indicies = clients_consider[10 * (
                             residual - 1):10 * residual] if residual > 0 else clients_consider[-10:]
                 else:
                     self.active_clients_indicies = self.select_clients(self.server_config['participate_ratio'])
 
-            elif self.cs_method in ["FedMCS", "FedMCS*", "FedMCSda", "FedMCSdg", "FedMCSag"]:
+            elif self.cs_method in ["FedMCS", "FedMCS*", "FedMCSda", "FedMCSdg", "FedMCSag", "FedRCS"]:
                 if r <= 10:
-                    self.active_clients_indicies = self.sort_client[r-1]
+                    self.active_clients_indicies = deepcopy(self.sort_client[r-1])
                 else:
                     rr = (r-11) % 55
                     k = int(np.abs(np.sqrt(2 * (rr + 1) + 1 / 4) - 1 / 2))
                     residual = int((rr + 1) - k * (k + 1) / 2)
                     if residual == 1:
-                        clients_consider = self.sort_client[:k + 1].flatten()
+                        clients_consider = deepcopy(self.sort_client[:k + 1]).flatten()
                         np.random.shuffle(clients_consider)
                         print("round :", r, "k :", k, "res :", residual)
                         print("client consider :", clients_consider)
                     elif residual == 0 and k == 1:
-                        clients_consider = self.sort_client[0]
+                        clients_consider = deepcopy(self.sort_client[0])
                         print("client consider :", clients_consider)
                     self.active_clients_indicies = clients_consider[10 * (
                             residual - 1):10 * residual] if residual > 0 else clients_consider[-10:]
@@ -414,6 +435,9 @@ class FedAvgServer(Server):
                 for k in range(self.n_cluster):
                     weights = self.distri_clusters[k]
                     self.active_clients_indicies[k] = int(np.random.choice(all_idx, 1, p=weights / sum(weights)))
+
+            elif self.cs_method == "Cluster2":
+                self.active_clients_indicies = self.cluster2_cs()
 
             # active clients download weights from the server
             tqdm.write(f"Round:{r} - Active clients:{self.active_clients_indicies}:")
@@ -437,7 +461,7 @@ class FedAvgServer(Server):
             self.collect_stats(stage="train", round=r, active_only=True)
 
             # ranking at these rounds
-            if 1 <= r % 55 <= 10 and "FedMCS" in self.cs_method:
+            if 1 <= r % 55 <= 10 and ("FedMCS" in self.cs_method or self.cs_method == "FedRCS"):
                 self.ranking(client_uploads, r)
 
             # get new server model
@@ -512,3 +536,89 @@ class FedAvgServer(Server):
             distri_clusters[l] /= np.sum(distri_clusters[l])
 
         self.distri_clusters = distri_clusters
+        self.weights = weights
+
+    def cluster2_cs(self):
+        # Get all local gradients
+        local_model_params = []
+        for idx in self.clients_dict.keys():
+            param = [tens.detach().to("cpu").flatten() for tens in list(self.clients_dict[idx].model.parameters())]
+            local_model_params += [np.concatenate(param)]
+        global_param = [tens.detach().to("cpu").flatten() for tens in list(self.server_side_client.model.parameters())]
+        global_param = np.concatenate(global_param)
+        print(global_param)
+        local_model_grads = [local_param - global_param for local_param in local_model_params]
+
+        # get_matrix_similarity_from_grads
+        n_clients = len(local_model_grads)
+        sim_matrix = np.zeros((n_clients, n_clients))
+        for i, j in product(range(n_clients), range(n_clients)):
+            a, b = local_model_grads[i], local_model_grads[j]
+            sim_matrix[i, j] = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-5)    # cosine similarity
+
+        # GET THE DENDROGRAM TREE ASSOCIATED
+        linkage_matrix = linkage(sim_matrix, "ward")
+
+        # get_clusters_with_alg2
+        epsilon = int(10 ** 6)
+        # associate each client to a cluster
+        link_matrix_p = deepcopy(linkage_matrix)
+        augmented_weights = deepcopy(self.weights)
+        for i in range(len(link_matrix_p)):
+            idx_1, idx_2 = int(link_matrix_p[i, 0]), int(link_matrix_p[i, 1])
+            new_weight = np.array(
+                [augmented_weights[idx_1] + augmented_weights[idx_2]])
+            augmented_weights = np.concatenate((augmented_weights, new_weight))
+            link_matrix_p[i, 2] = int(new_weight * epsilon)
+        clusters = fcluster(link_matrix_p, int(epsilon / self.n_cluster), criterion="distance")
+        n_clients, n_clusters = len(clusters), len(set(clusters))
+        print("--- check n_clients, n_clusters:", n_clients, n_clusters)
+        # Associate each cluster to its number of clients in the cluster
+        pop_clusters = np.zeros((n_clusters, 2)).astype(np.int64)
+        for i in range(n_clusters):
+            pop_clusters[i, 0] = i + 1
+            for client in np.where(clusters == i + 1)[0]:
+                pop_clusters[i, 1] += int(self.weights[client] * epsilon * self.n_cluster)
+        pop_clusters = pop_clusters[pop_clusters[:, 1].argsort()]
+        distri_clusters = np.zeros((self.n_cluster, n_clients)).astype(int)
+        # n_sampled biggest clusters that will remain unchanged
+        kept_clusters = pop_clusters[n_clusters - self.n_cluster:, 0]
+        for idx, cluster in enumerate(kept_clusters):
+            for client in np.where(clusters == cluster)[0]:
+                distri_clusters[idx, client] = int(self.weights[client] * self.n_cluster * epsilon)
+        k = 0
+        for j in pop_clusters[: n_clusters - self.n_cluster, 0]:
+            clients_in_j = np.where(clusters == j)[0]
+            np.random.shuffle(clients_in_j)
+            for client in clients_in_j:
+                weight_client = int(self.weights[client] * epsilon * self.n_cluster)
+                while weight_client > 0:
+                    sum_proba_in_k = np.sum(distri_clusters[k])
+                    u_i = min(epsilon - sum_proba_in_k, weight_client)
+                    distri_clusters[k, client] = u_i
+                    weight_client += -u_i
+                    sum_proba_in_k = np.sum(distri_clusters[k])
+                    if sum_proba_in_k == 1 * epsilon:
+                        k += 1
+        distri_clusters = distri_clusters.astype(float)
+        print(distri_clusters.shape)
+        for l in range(self.n_cluster):
+            distri_clusters[l] /= np.sum(distri_clusters[l])
+
+        # sample clients
+        selected_client_idxs = np.zeros(self.n_cluster, dtype=int)
+        all_idx = np.arange(self.server_config["num_clients"])
+        for k in range(self.n_cluster):
+            selected_client_idxs[k] = int(np.random.choice(all_idx, 1, p=distri_clusters[k]))
+
+        return selected_client_idxs
+
+    def oort_cs(self):
+        num_clients = len(self.clients_dict.keys())
+        client_utilities = {client_id: 0 for client_id in range(0, num_clients)}
+        client_last_rounds = {client_id: 0 for client_id in range(0, num_clients)}
+        client_selected_times = {client_id: 0 for client_id in range(0, num_clients)}
+        unexplored_clients = list(range(0, num_clients))
+
+
+
