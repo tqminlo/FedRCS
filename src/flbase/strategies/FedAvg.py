@@ -31,6 +31,7 @@ class FedAvgClient(Client):
         temp = [self.count_by_class[cls] if cls in self.count_by_class.keys() else 1e-12 for cls in
                 range(client_config['num_classes'])]
         self.count_by_class_full = torch.tensor(temp).to(self.device)
+        self.D_client = sum([self.count_by_class[cls] for cls in self.count_by_class.keys()])
         # print(np.array(temp).astype(int).tolist(), ",")  # dem so mau moi class trong moi client
         # print("*** CHECK DATA *** : ", np.sum(np.array(temp).astype(int)))  # dem so mau moi client
 
@@ -39,6 +40,7 @@ class FedAvgClient(Client):
         self.score = np.sum(np.array(temp)) * self.entropy
         # print(self.entropy)
         print(self.score)
+        self.loss_utility = 0
 
     def _initialize_model(self):
         # parse the model from config file
@@ -61,6 +63,7 @@ class FedAvgClient(Client):
             raise ValueError("No trainloader is provided!")
         optimizer = setup_optimizer(self.model, self.client_config, round)
         # print('lr:', optimizer.param_groups[0]['lr'])
+        loss_utility = 0
         for i in range(num_epochs):
             epoch_loss, correct = 0.0, 0
             for j, (x, y) in enumerate(self.trainloader):
@@ -80,6 +83,7 @@ class FedAvgClient(Client):
                 predicted = yhat.data.max(1)[1]
                 correct += predicted.eq(y.data).sum().item()
                 epoch_loss += loss.item() * x.shape[0]  # rescale to bacthsize
+                loss_utility += (loss.item() ** 2) * len(y)
             epoch_loss /= len(self.trainloader.dataset)
             epoch_accuracy = correct / len(self.trainloader.dataset)
             loss_seq.append(epoch_loss)
@@ -87,6 +91,8 @@ class FedAvgClient(Client):
         self.new_state_dict = self.model.state_dict()
         self.train_loss_dict[round] = loss_seq
         self.train_acc_dict[round] = acc_seq
+
+        self.loss_utility = loss_utility / num_epochs
 
     def upload(self):
         return self.new_state_dict, self.count_by_class_full, (self.entropy, self.score)
@@ -110,7 +116,7 @@ class FedAvgClient(Client):
             weight_per_class_dict['validclass'][cls] = 1.0
         # start testing
         predict_per_class = [0 for i in range(num_classes)]
-        prob_per_class = torch.tensor([0 for i in range(num_classes)])
+        prob_per_class = torch.tensor([0 for i in range(num_classes)], device=self.device)
         with torch.no_grad():
             for i, (x, y) in enumerate(testloader):
                 # forward pass
@@ -170,14 +176,32 @@ class FedAvgServer(Server):
         # if len(freeze_layers) > 0:
         #     print("{self.server_config['strategy']}Server: the following layers will not be updated:", freeze_layers)
         self.cs_method = cs_method
+        self.validloader = DataLoader(kwargs["global_validset"], batch_size=128, shuffle=False) if kwargs[
+            "global_validset"] else None
+        self.active_clients_indicies = []
 
+        # for FedMCS/FedRCS methods
         self.sort_client_entropy = np.zeros(shape=(10, 10), dtype=int)
         self.sort_client_ref = np.arange(100,).reshape((10, 10))
         self.sort_client = np.arange(100,).reshape((10, 10))
 
+        # for Cluster1 method
         self.cluster1_setup(clients_dict)
 
-        self.validloader = DataLoader(kwargs["global_validset"], batch_size=128, shuffle=False) if kwargs["global_validset"] else None
+        # for OORT method
+        self.n_all_clients = len(self.clients_dict.keys())      # = self.server_config["num_clients"]
+        self.n_selected = int(self.n_all_clients * self.server_config["participate_ratio"])  # 10
+        self.client_utilities = {client_id: 0 for client_id in range(0, self.n_all_clients)}
+        self.client_last_rounds = {client_id: 0 for client_id in range(0, self.n_all_clients)}
+        self.client_selected_times = {client_id: 0 for client_id in range(0, self.n_all_clients)}
+        self.unexplored_clients = list(range(0, self.n_all_clients))
+        self.current_round = 0
+        self.blacklist_num = 40 # 2 x times of the average (2 x 20)
+        self.blacklist = []
+        self.cut_off = 0.95
+
+        # for TQM2 method
+        self.pre_global_model = deepcopy(self.server_side_client.model)
 
     def ranking(self, client_uploads, round):
         res = round % 55
@@ -385,6 +409,7 @@ class FedAvgServer(Server):
         best_test_acc = 0
         for r in round_iterator:
             setup_seed(r + kwargs['global_seed'])
+            self.current_round = r
 
             if self.cs_method == "Random":
                 self.active_clients_indicies = self.select_clients(self.server_config['participate_ratio'])
@@ -439,6 +464,21 @@ class FedAvgServer(Server):
             elif self.cs_method == "Cluster2":
                 self.active_clients_indicies = self.cluster2_cs()
 
+            elif self.cs_method == "OORT":
+                self.active_clients_indicies = self.oort_cs()
+
+            elif self.cs_method == "OORT2":
+                self.active_clients_indicies = self.oort2_cs()
+
+            elif self.cs_method == "TQM":
+                self.active_clients_indicies = self.tqm_cs()
+
+            elif self.cs_method == "TQM2":
+                self.active_clients_indicies = self.tqm2_cs()
+
+            elif self.cs_method == "MOORT":
+                self.active_clients_indicies = self.moort_cs()
+
             # active clients download weights from the server
             tqdm.write(f"Round:{r} - Active clients:{self.active_clients_indicies}:")
 
@@ -465,6 +505,7 @@ class FedAvgServer(Server):
                 self.ranking(client_uploads, r)
 
             # get new server model
+            self.pre_global_model = deepcopy(self.server_side_client.model)
             # agg_start = time.time()
             self.aggregate(client_uploads, round=r)
             # agg_time = time.time() - agg_start
@@ -614,11 +655,378 @@ class FedAvgServer(Server):
         return selected_client_idxs
 
     def oort_cs(self):
-        num_clients = len(self.clients_dict.keys())
-        client_utilities = {client_id: 0 for client_id in range(0, num_clients)}
-        client_last_rounds = {client_id: 0 for client_id in range(0, num_clients)}
-        client_selected_times = {client_id: 0 for client_id in range(0, num_clients)}
-        unexplored_clients = list(range(0, num_clients))
+        # Update client utilities
+        active_clients_before = self.active_clients_indicies
+        for idx in active_clients_before:
+            self.client_last_rounds[idx] = self.current_round - 1       # cuz select in previous round
+            statistical_utility = np.sqrt(self.clients_dict[idx].D_client * self.clients_dict[idx].loss_utility)
+            client_utility = statistical_utility + np.sqrt(
+                0.1 * np.log(self.current_round - 1) / self.client_last_rounds[idx])    # cuz select in previous round
+            self.client_utilities[idx] = client_utility
+
+        """client selection here"""
+        selected_clients = []
+
+        if self.current_round > 1:      # check how about = 1?
+            # Exploitation
+            exploited_clients_count = max(math.ceil(0.1 * self.n_selected), self.n_selected - len(self.unexplored_clients))
+            sorted_by_utility = sorted(self.client_utilities, key=self.client_utilities.get, reverse=True)
+
+            # Calculate cut-off utility
+            cut_off_util = (self.client_utilities[sorted_by_utility[exploited_clients_count - 1]] * self.cut_off)
+
+            # Include clients with utilities higher than the cut-off
+            exploited_clients = []
+            for idx in sorted_by_utility:
+                if self.client_utilities[idx] > cut_off_util and idx not in self.blacklist:
+                    exploited_clients.append(idx)
+
+            # Sample clients with their utilities
+            total_utility = float(sum(self.client_utilities[idx] for idx in exploited_clients))
+            probabilities = [self.client_utilities[idx] / total_utility for idx in exploited_clients]
+            if len(probabilities) > 0 and exploited_clients_count > 0:
+                selected_clients = np.random.choice(exploited_clients, min(len(exploited_clients), exploited_clients_count),
+                                                        p=probabilities, replace=False)
+                selected_clients = selected_clients.tolist()
+
+            # If the result of exploitation wasn't enough to meet the required length
+            if len(selected_clients) < exploited_clients_count:
+                last_index = sorted_by_utility.index(exploited_clients[-1]) if exploited_clients else 0
+                for idx in range(last_index + 1, len(sorted_by_utility)):
+                    if not sorted_by_utility[idx] in self.blacklist and len(selected_clients) < exploited_clients_count:
+                        selected_clients.append(sorted_by_utility[idx])
+
+        # Exploration - Select unexplored clients randomly
+        selected_unexplore_clients = np.random.choice(self.unexplored_clients, self.n_selected - len(selected_clients),
+                                                      replace=False).tolist()
+        print("check selected old and new:", selected_clients, selected_unexplore_clients)
+        print("check blacklist:", self.blacklist)
+        selected_clients += selected_unexplore_clients
+
+        # Update after select
+        for idx in selected_unexplore_clients:
+            self.unexplored_clients.remove(idx)
+        for idx in selected_clients:
+            self.client_selected_times[idx] += 1
+            if self.client_selected_times[idx] > self.blacklist_num:
+                self.blacklist.append(idx)
+
+        return selected_clients
+
+    def oort2_cs(self):
+        # Update client utilities
+        active_clients_before = self.active_clients_indicies
+        for idx in active_clients_before:
+            self.client_last_rounds[idx] = self.current_round - 1       # cuz select in previous round
+            statistical_utility = np.sqrt(self.clients_dict[idx].D_client * self.clients_dict[idx].loss_utility)
+            self.client_utilities[idx] = statistical_utility + np.sqrt(
+                0.1 * np.log(self.current_round - 1) / (self.current_round - 1))    # cuz select in previous round
+
+        active_clients_past = list(set(range(0, self.n_all_clients)) - set(active_clients_before) - set(self.unexplored_clients))
+        for idx in active_clients_past:
+            self.client_utilities[idx] = (self.client_utilities[idx] -
+                                          np.sqrt(0.1 * np.log(self.current_round - 2) / self.client_last_rounds[idx]) +
+                                          np.sqrt(0.1 * np.log(self.current_round - 1) / self.client_last_rounds[idx]))
+
+        """client selection here"""
+        selected_clients = []
+
+        if self.current_round > 1:      # check how about = 1?
+            # Exploitation
+            exploited_clients_count = max(math.ceil(0.1 * self.n_selected), self.n_selected - len(self.unexplored_clients))
+            sorted_by_utility = sorted(self.client_utilities, key=self.client_utilities.get, reverse=True)
+
+            # Calculate cut-off utility
+            cut_off_util = (self.client_utilities[sorted_by_utility[exploited_clients_count - 1]] * self.cut_off)
+
+            # Include clients with utilities higher than the cut-off
+            exploited_clients = []
+            for idx in sorted_by_utility:
+                if self.client_utilities[idx] > cut_off_util and idx not in self.blacklist:
+                    exploited_clients.append(idx)
+
+            # Sample clients with their utilities
+            total_utility = float(sum(self.client_utilities[idx] for idx in exploited_clients))
+            probabilities = [self.client_utilities[idx] / total_utility for idx in exploited_clients]
+            if len(probabilities) > 0 and exploited_clients_count > 0:
+                selected_clients = np.random.choice(exploited_clients, min(len(exploited_clients), exploited_clients_count),
+                                                        p=probabilities, replace=False)
+                selected_clients = selected_clients.tolist()
+
+            # If the result of exploitation wasn't enough to meet the required length
+            if len(selected_clients) < exploited_clients_count:
+                last_index = sorted_by_utility.index(exploited_clients[-1]) if exploited_clients else 0
+                for idx in range(last_index + 1, len(sorted_by_utility)):
+                    if not sorted_by_utility[idx] in self.blacklist and len(selected_clients) < exploited_clients_count:
+                        selected_clients.append(sorted_by_utility[idx])
+
+        # Exploration - Select unexplored clients randomly
+        selected_unexplore_clients = np.random.choice(self.unexplored_clients, self.n_selected - len(selected_clients),
+                                                      replace=False).tolist()
+        print("check selected old and new:", selected_clients, selected_unexplore_clients)
+        print("check blacklist:", self.blacklist)
+        selected_clients += selected_unexplore_clients
+
+        # Update after select
+        for idx in selected_unexplore_clients:
+            self.unexplored_clients.remove(idx)
+        for idx in selected_clients:
+            self.client_selected_times[idx] += 1
+            if self.client_selected_times[idx] > self.blacklist_num:
+                self.blacklist.append(idx)
+
+        return selected_clients
+
+    def tqm_cs(self):
+        print("---client_selected_times:", self.client_selected_times)
+        # Update client utilities
+        active_clients_before = self.active_clients_indicies
+        count_per_class_test = Counter(self.server_side_client.testloader.dataset.targets.numpy())
+        num_classes = self.server_side_client.client_config['num_classes']
+        count_per_class_test = torch.tensor([count_per_class_test[cls] for cls in range(num_classes)])
+        for idx in active_clients_before:
+            self.clients_dict[idx].testing(self.current_round, testloader=self.server_side_client.testloader)  # for Cifar10 exps, if use proxy set: testloader=self.validloader
+            acc_per_class = self.clients_dict[idx].test_acc_dict[self.current_round]['correct_per_class']
+            # mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test)).detach().numpy()
+            # mul_acc = torch.prod(1 + (acc_per_class / count_per_class_test)).detach().numpy()
+            mul_acc = np.prod(1 + (acc_per_class / count_per_class_test).detach().numpy()) ** (1/num_classes) - 1
+
+            self.client_last_rounds[idx] = self.current_round - 1       # cuz select in previous round
+            statistical_utility = self.clients_dict[idx].D_client * mul_acc
+            # self.client_utilities[idx] = statistical_utility / np.log(self.client_selected_times[idx]+1)
+            self.client_utilities[idx] = statistical_utility
+
+        active_clients_past = list(set(range(0, self.n_all_clients)) - set(active_clients_before) - set(self.unexplored_clients))
+        for idx in active_clients_past:
+            # re_hat_of_e = (np.sqrt((self.current_round-1)/self.client_last_rounds[idx] - 1) -
+            #                np.sqrt((self.current_round-2)/self.client_last_rounds[idx] - 1))
+            # self.client_utilities[idx] *= np.exp(re_hat_of_e)
+            # self.client_utilities[idx] *= (self.current_round-1) / (self.current_round-2)
+            self.client_utilities[idx] *= (np.sqrt(self.current_round - self.client_last_rounds[idx]) /
+                                           np.sqrt((self.current_round-1) - self.client_last_rounds[idx]))
+
+        print("---client_utilities:", self.client_utilities)
+
+        """client selection here"""
+        selected_clients = []
+
+        if self.current_round > 1:      # check how about = 1?
+            # Exploitation
+            exploited_clients_count = max(math.ceil(0.1 * self.n_selected), self.n_selected - len(self.unexplored_clients))
+            sorted_by_utility = sorted(self.client_utilities, key=self.client_utilities.get, reverse=True)
+
+            # Calculate cut-off utility
+            cut_off_util = (self.client_utilities[sorted_by_utility[exploited_clients_count - 1]] * self.cut_off)
+
+            # Include clients with utilities higher than the cut-off
+            exploited_clients = []
+            for idx in sorted_by_utility:
+                if self.client_utilities[idx] > cut_off_util and idx not in self.blacklist:
+                    exploited_clients.append(idx)
+
+            # Sample clients with their utilities
+            total_utility = float(sum(self.client_utilities[idx] for idx in exploited_clients))
+            probabilities = [self.client_utilities[idx] / total_utility for idx in exploited_clients]
+            if len(probabilities) > 0 and exploited_clients_count > 0:
+                selected_clients = np.random.choice(exploited_clients, min(len(exploited_clients), exploited_clients_count),
+                                                        p=probabilities, replace=False)
+                selected_clients = selected_clients.tolist()
+
+            # If the result of exploitation wasn't enough to meet the required length
+            if len(selected_clients) < exploited_clients_count:
+                last_index = sorted_by_utility.index(exploited_clients[-1]) if exploited_clients else 0
+                for idx in range(last_index + 1, len(sorted_by_utility)):
+                    if not sorted_by_utility[idx] in self.blacklist and len(selected_clients) < exploited_clients_count:
+                        selected_clients.append(sorted_by_utility[idx])
+
+        # Exploration - Select unexplored clients randomly
+        selected_unexplore_clients = np.random.choice(self.unexplored_clients, self.n_selected - len(selected_clients),
+                                                      replace=False).tolist()
+        print("check selected old and new:", selected_clients, selected_unexplore_clients)
+        print("check blacklist:", self.blacklist)
+        selected_clients += selected_unexplore_clients
+
+        # Update after select
+        for idx in selected_unexplore_clients:
+            self.unexplored_clients.remove(idx)
+        for idx in selected_clients:
+            self.client_selected_times[idx] += 1
+            if self.client_selected_times[idx] > self.blacklist_num:
+                self.blacklist.append(idx)
+
+        return selected_clients
+
+    def tqm2_cs(self):
+        print("---client_selected_times:", self.client_selected_times)
+        # Update client utilities
+        active_clients_before = self.active_clients_indicies
+
+        global_param = [tens.detach().to("cpu").flatten() for tens in list(self.server_side_client.model.parameters())]
+        global_param = np.concatenate(global_param)
+        global_param_before = [tens.detach().to("cpu").flatten() for tens in list(self.pre_global_model.parameters())]
+        global_param_before = np.concatenate(global_param_before)
+        global_gradient = global_param - global_param_before
+        for idx in active_clients_before:
+            param = [tens.detach().to("cpu").flatten() for tens in list(self.clients_dict[idx].model.parameters())]
+            param = np.concatenate(param)
+            gradient = param - global_param_before
+            cos_sim = np.dot(gradient, global_gradient) / (np.linalg.norm(gradient) * np.linalg.norm(global_gradient))
+
+            self.client_last_rounds[idx] = self.current_round - 1  # cuz select in previous round
+            statistical_utility = self.clients_dict[idx].D_client * max(cos_sim, 0.1)
+            # self.client_utilities[idx] = statistical_utility / np.log(self.client_selected_times[idx] + 1)
+            self.client_utilities[idx] = statistical_utility
+            print("---cos_sim, D_client:", cos_sim, self.clients_dict[idx].D_client)
+
+        active_clients_past = list(set(range(0, self.n_all_clients)) - set(active_clients_before) - set(self.unexplored_clients))
+        for idx in active_clients_past:
+            re_hat_of_e = (np.sqrt((self.current_round - 1) / self.client_last_rounds[idx] - 1) -
+                           np.sqrt((self.current_round - 2) / self.client_last_rounds[idx] - 1))
+            self.client_utilities[idx] *= np.exp(re_hat_of_e)
+        print("---client_utilities:", self.client_utilities)
+
+        """client selection here"""
+        selected_clients = []
+
+        if self.current_round > 1:  # check how about = 1?
+            # Exploitation
+            exploited_clients_count = max(math.ceil(0.1 * self.n_selected),
+                                          self.n_selected - len(self.unexplored_clients))
+            sorted_by_utility = sorted(self.client_utilities, key=self.client_utilities.get, reverse=True)
+
+            # Calculate cut-off utility
+            cut_off_util = (self.client_utilities[sorted_by_utility[exploited_clients_count - 1]] * self.cut_off)
+
+            # Include clients with utilities higher than the cut-off
+            exploited_clients = []
+            for idx in sorted_by_utility:
+                if self.client_utilities[idx] > cut_off_util and idx not in self.blacklist:
+                    exploited_clients.append(idx)
+
+            # Sample clients with their utilities
+            total_utility = float(sum(self.client_utilities[idx] for idx in exploited_clients))
+            probabilities = [self.client_utilities[idx] / total_utility for idx in exploited_clients]
+            if len(probabilities) > 0 and exploited_clients_count > 0:
+                selected_clients = np.random.choice(exploited_clients,
+                                                    min(len(exploited_clients), exploited_clients_count),
+                                                    p=probabilities, replace=False)
+                selected_clients = selected_clients.tolist()
+
+            # If the result of exploitation wasn't enough to meet the required length
+            if len(selected_clients) < exploited_clients_count:
+                last_index = sorted_by_utility.index(exploited_clients[-1]) if exploited_clients else 0
+                for idx in range(last_index + 1, len(sorted_by_utility)):
+                    if not sorted_by_utility[idx] in self.blacklist and len(selected_clients) < exploited_clients_count:
+                        selected_clients.append(sorted_by_utility[idx])
+
+        # Exploration - Select unexplored clients randomly
+        selected_unexplore_clients = np.random.choice(self.unexplored_clients, self.n_selected - len(selected_clients),
+                                                      replace=False).tolist()
+        print("check selected old and new:", selected_clients, selected_unexplore_clients)
+        print("check blacklist:", self.blacklist)
+        selected_clients += selected_unexplore_clients
+
+        # Update after select
+        for idx in selected_unexplore_clients:
+            self.unexplored_clients.remove(idx)
+        for idx in selected_clients:
+            self.client_selected_times[idx] += 1
+            if self.client_selected_times[idx] > self.blacklist_num:
+                self.blacklist.append(idx)
+
+        return selected_clients
+
+    def moort_cs(self):
+        print("---client_selected_times:", self.client_selected_times)
+        # Update client utilities
+        active_clients_before = self.active_clients_indicies
+        count_per_class_test = Counter(self.server_side_client.testloader.dataset.targets.numpy())
+        num_classes = self.server_side_client.client_config['num_classes']
+        count_per_class_test = torch.tensor([count_per_class_test[cls] for cls in range(num_classes)])
+
+        global_param = [tens.detach().to("cpu").flatten() for tens in list(self.server_side_client.model.parameters())]
+        global_param = np.concatenate(global_param)
+        global_param_before = [tens.detach().to("cpu").flatten() for tens in list(self.pre_global_model.parameters())]
+        global_param_before = np.concatenate(global_param_before)
+        global_gradient = global_param - global_param_before
+
+        for idx in active_clients_before:
+            self.clients_dict[idx].testing(self.current_round, testloader=self.server_side_client.testloader)  # for Cifar10 exps, if use proxy set: testloader=self.validloader
+            acc_per_class = self.clients_dict[idx].test_acc_dict[self.current_round]['correct_per_class']
+            # mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test)).detach().numpy()
+            # mul_acc = torch.prod(1 + (acc_per_class / count_per_class_test)).detach().numpy()
+            mul_acc = np.prod(1 + (acc_per_class / count_per_class_test).detach().numpy()) ** (1/num_classes) - 1
+
+            param = [tens.detach().to("cpu").flatten() for tens in list(self.clients_dict[idx].model.parameters())]
+            param = np.concatenate(param)
+            gradient = param - global_param_before
+            cos_sim = np.dot(gradient, global_gradient) / (np.linalg.norm(gradient) * np.linalg.norm(global_gradient))
+
+            self.client_last_rounds[idx] = self.current_round - 1       # cuz select in previous round
+            statistical_utility = self.clients_dict[idx].D_client * mul_acc * max(cos_sim, 0.1)
+            # self.client_utilities[idx] = statistical_utility / np.log(self.client_selected_times[idx]+1)
+            self.client_utilities[idx] = statistical_utility
+
+        active_clients_past = list(set(range(0, self.n_all_clients)) - set(active_clients_before) - set(self.unexplored_clients))
+        for idx in active_clients_past:
+            # re_hat_of_e = (np.sqrt((self.current_round-1)/self.client_last_rounds[idx] - 1) -
+            #                np.sqrt((self.current_round-2)/self.client_last_rounds[idx] - 1))
+            # self.client_utilities[idx] *= np.exp(re_hat_of_e)
+            # self.client_utilities[idx] *= (self.current_round-1) / (self.current_round-2)
+            self.client_utilities[idx] *= (np.sqrt(self.current_round - self.client_last_rounds[idx]) /
+                                           np.sqrt((self.current_round-1) - self.client_last_rounds[idx]))
+
+        print("---client_utilities:", self.client_utilities)
+
+        """client selection here"""
+        selected_clients = []
+
+        if self.current_round > 1:      # check how about = 1?
+            # Exploitation
+            exploited_clients_count = max(math.ceil(0.1 * self.n_selected), self.n_selected - len(self.unexplored_clients))
+            sorted_by_utility = sorted(self.client_utilities, key=self.client_utilities.get, reverse=True)
+
+            # Calculate cut-off utility
+            cut_off_util = (self.client_utilities[sorted_by_utility[exploited_clients_count - 1]] * self.cut_off)
+
+            # Include clients with utilities higher than the cut-off
+            exploited_clients = []
+            for idx in sorted_by_utility:
+                if self.client_utilities[idx] > cut_off_util and idx not in self.blacklist:
+                    exploited_clients.append(idx)
+
+            # Sample clients with their utilities
+            total_utility = float(sum(self.client_utilities[idx] for idx in exploited_clients))
+            probabilities = [self.client_utilities[idx] / total_utility for idx in exploited_clients]
+            if len(probabilities) > 0 and exploited_clients_count > 0:
+                selected_clients = np.random.choice(exploited_clients, min(len(exploited_clients), exploited_clients_count),
+                                                        p=probabilities, replace=False)
+                selected_clients = selected_clients.tolist()
+
+            # If the result of exploitation wasn't enough to meet the required length
+            if len(selected_clients) < exploited_clients_count:
+                last_index = sorted_by_utility.index(exploited_clients[-1]) if exploited_clients else 0
+                for idx in range(last_index + 1, len(sorted_by_utility)):
+                    if not sorted_by_utility[idx] in self.blacklist and len(selected_clients) < exploited_clients_count:
+                        selected_clients.append(sorted_by_utility[idx])
+
+        # Exploration - Select unexplored clients randomly
+        selected_unexplore_clients = np.random.choice(self.unexplored_clients, self.n_selected - len(selected_clients),
+                                                      replace=False).tolist()
+        print("check selected old and new:", selected_clients, selected_unexplore_clients)
+        print("check blacklist:", self.blacklist)
+        selected_clients += selected_unexplore_clients
+
+        # Update after select
+        for idx in selected_unexplore_clients:
+            self.unexplored_clients.remove(idx)
+        for idx in selected_clients:
+            self.client_selected_times[idx] += 1
+            if self.client_selected_times[idx] > self.blacklist_num:
+                self.blacklist.append(idx)
+
+        return selected_clients
+
 
 
 

@@ -92,6 +92,7 @@ class FedUHClient(FedAvgClient):
         optimizer = setup_optimizer(self.model, self.client_config, round)
         # print('lr:', optimizer.param_groups[0]['lr'])
         # training starts
+        loss_utility = 0
         for i in range(num_epochs):
             epoch_loss, correct = 0.0, 0
             for _, (x, y) in enumerate(self.trainloader):
@@ -110,6 +111,7 @@ class FedUHClient(FedAvgClient):
                 predicted = yhat.data.max(1)[1]
                 correct += predicted.eq(y.data).sum().item()
                 epoch_loss += loss.item() * x.shape[0]  # rescale to bacthsize
+                loss_utility += (loss.item() ** 2) * len(y)
 
             epoch_loss /= len(self.trainloader.dataset)
             epoch_accuracy = correct / len(self.trainloader.dataset)
@@ -118,6 +120,8 @@ class FedUHClient(FedAvgClient):
         self.new_state_dict = self.model.state_dict()
         self.train_loss_dict[round] = loss_seq
         self.train_acc_dict[round] = acc_seq
+
+        self.loss_utility = loss_utility / num_epochs
 
     def upload(self):
         return self.new_state_dict

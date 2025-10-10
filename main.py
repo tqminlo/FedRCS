@@ -84,7 +84,7 @@ def run(args):
     else:
         raise ValueError("Invalid strategy!")
 
-    run_tag = f"{server_config['strategy']}_{args.cs_method}_{server_config['dataset']}_{client_config['model']}_{partition_arg}_num_clients:{server_config['num_clients']}_participate_ratio:{server_config['participate_ratio']}_global_seed:{args.global_seed}"
+    run_tag = f"{args.cs_method}_global_seed:{args.global_seed}_{server_config['strategy']}_{server_config['dataset']}_{client_config['model']}_{partition_arg}_num_clients:{server_config['num_clients']}_participate_ratio:{server_config['participate_ratio']}"
     if hyper_params is not None:
         run_tag += "_" + hyper_params
 
