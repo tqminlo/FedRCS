@@ -211,7 +211,6 @@ class FedAvgServer(Server):
         self.unexplored_clients = list(range(0, self.n_all_clients))
         self.black_num = 20  # 1 x times of the average (2 x 20)
 
-
     def ranking(self, client_uploads, round):
         res = round % 55
         assert 1 <= res <= 10, "false round"
@@ -296,11 +295,12 @@ class FedAvgServer(Server):
             score_final = [D_list[i] * mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
 
         print("---check active_clients_indicies : ", self.active_clients_indicies)
+        print("---check score_final : ", score_final)
         sorted_idx = np.array([x for _, x in sorted(zip(score_final, self.active_clients_indicies), reverse=True)])
         print("---check sorted_idx_score : ", sorted_idx)
         self.sort_client[res - 1] = sorted_idx
-        print("---check active_clients_indicies : ", self.active_clients_indicies)
 
+        print("---check active_clients_indicies : ", self.active_clients_indicies)
         print("---check ref_list : ", ref_list)
         sorted_ref = np.array([x for _, x in sorted(zip(ref_list, self.active_clients_indicies), reverse=True)])
         print("---check sorted_ref : ", sorted_ref)
