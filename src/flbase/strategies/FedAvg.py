@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader
 
 from itertools import product
 from scipy.cluster.hierarchy import fcluster, linkage
+from sklearn.utils import shuffle
 
 class FedAvgClient(Client):
     def __init__(self, criterion, trainset, testset, client_config, cid, device, **kwargs):
@@ -202,6 +203,14 @@ class FedAvgServer(Server):
 
         # for TQM2 method
         self.pre_global_model = deepcopy(self.server_side_client.model)
+
+        # for FedERCS method
+        self.rank = {i: [] for i in range(self.n_selected)}
+        self.n_selected = int(self.n_all_clients * self.server_config["participate_ratio"])  # 10, = n rank group
+        self.client_selected_times = {client_id: 0 for client_id in range(0, self.n_all_clients)}
+        self.unexplored_clients = list(range(0, self.n_all_clients))
+        self.black_num = 20  # 1 x times of the average (2 x 20)
+
 
     def ranking(self, client_uploads, round):
         res = round % 55
@@ -407,6 +416,7 @@ class FedAvgServer(Server):
 
         # round index begin with 1
         best_test_acc = 0
+        client_uploads = []
         for r in round_iterator:
             setup_seed(r + kwargs['global_seed'])
             self.current_round = r
@@ -478,6 +488,9 @@ class FedAvgServer(Server):
 
             elif self.cs_method == "MOORT":
                 self.active_clients_indicies = self.moort_cs()
+
+            elif self.cs_method == "FedERCS":
+                self.active_clients_indicies = self.federcs_cs(client_uploads)
 
             # active clients download weights from the server
             tqdm.write(f"Round:{r} - Active clients:{self.active_clients_indicies}:")
@@ -1027,6 +1040,86 @@ class FedAvgServer(Server):
 
         return selected_clients
 
+    def federcs_cs(self, client_uploads):
+        D_list = []
+        entropy_list = []
+        ref_list = []
+        mul_acc_list = []
+        for idx, (client_state_dict, _, ref_score) in enumerate(client_uploads):
+            D_list.append(self.clients_dict[idx].D_client)
+            entropy_list.append(ref_score[0])
+            ref_list.append(ref_score[1])
 
+            count_per_class_test = Counter(self.server_side_client.testloader.dataset.targets.numpy())
+            num_classes = self.server_side_client.client_config['num_classes']
+            count_per_class_test = torch.tensor([count_per_class_test[cls] * 1.0 for cls in range(num_classes)])
+            self.server_side_client.set_params(client_state_dict, self.exclude_layer_keys)
+            self.server_side_client.testing(round, testloader=None)  # for Cifar10 exps, if use proxy set: testloader=self.validloader
+            self.gfl_test_acc_dict[round] = self.server_side_client.test_acc_dict[round]
+            acc_per_class = self.gfl_test_acc_dict[round]['correct_per_class']
+            # print("---check acc_per_class : ", acc_per_class)
+            mul_acc = torch.prod(np.exp(acc_per_class / count_per_class_test))
+            mul_acc_list.append(mul_acc.cpu().numpy())
+
+        # Calculate gradient list
+        gradients_list = []
+        for idx, (client_state_dict, _, _) in enumerate(client_uploads):
+            gradient = []
+            for state_key in client_state_dict.keys():
+                if state_key not in self.exclude_layer_keys:
+                    g = client_state_dict[state_key] - self.server_model_state_dict[state_key]
+                    gradient.append(g.cpu().numpy().flatten())
+            gradient = np.concatenate(gradient, axis=0)
+            gradients_list.append(gradient)
+
+        weights = torch.tensor([1] * 10)
+        weights = weights / torch.sum(weights)
+        weights_2d = weights.unsqueeze(1)
+        gradients_list = torch.tensor(gradients_list)
+        gradient_global = gradients_list * weights_2d
+        gradient_global = torch.sum(gradient_global, 0)
+        cosin_similary_list = [torch.nn.CosineSimilarity(dim=0)(gradient_global, grad_k) for grad_k in
+                               gradients_list]
+
+        # Sort
+        score_final = [D_list[i] * mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
+        print("---check active_clients_indicies : ", self.active_clients_indicies)
+        print("---check score_final : ", score_final)
+        sorted_idx = np.array([x for _, x in sorted(zip(score_final, self.active_clients_indicies), reverse=True)])
+        print("---check sorted_idx_score : ", sorted_idx)
+        # self.sort_client[res - 1] = sorted_idx
+
+        print("---check active_clients_indicies : ", self.active_clients_indicies)
+        print("---check ref_list : ", ref_list)
+        sorted_ref = np.array([x for _, x in sorted(zip(ref_list, self.active_clients_indicies), reverse=True)])
+        print("---check sorted_ref : ", sorted_ref)
+
+        for i in range(self.n_selected):
+            idx = sorted_idx[i]
+            if self.client_selected_times[idx] % self.black_num != 0:
+                self.rank[i].append(idx)
+            else:       # update: if idx choose per 20-times, put it into the lowest rank group
+                self.rank[self.n_selected-1].append(idx)
+            self.rank[i] = shuffle(self.rank[i])
+
+        # selection
+        # Select unexplored clients randomly
+        selected_clients = np.random.choice(self.unexplored_clients, min(self.n_selected, len(self.unexplored_clients)),
+                                                      replace=False).tolist()
+        for idx in selected_clients:        # update: remove choose-clients in unexplored-list
+            self.unexplored_clients.remove(idx)
+        # Select explored clients by rank high to low
+        rank_selected = 0
+        while len(selected_clients) < self.n_selected:
+            num_choose_in_rank = min(self.n_selected - len(selected_clients), len(self.rank[rank_selected]))
+            selected_clients += self.rank[rank_selected][:num_choose_in_rank]
+            self.rank[rank_selected] = self.rank[rank_selected][num_choose_in_rank:]    # update: remove choose-clients in rank-list
+            rank_selected += 1
+
+        # update client_selected_times
+        for idx in selected_clients:
+            self.client_selected_times[idx] += 1
+
+        return selected_clients
 
 
