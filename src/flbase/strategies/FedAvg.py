@@ -205,11 +205,14 @@ class FedAvgServer(Server):
         self.pre_global_model = deepcopy(self.server_side_client.model)
 
         # for FedERCS method
-        self.rank = {i: [] for i in range(self.n_selected)}
-        self.n_selected = int(self.n_all_clients * self.server_config["participate_ratio"])  # 10, = n rank group
-        self.client_selected_times = {client_id: 0 for client_id in range(0, self.n_all_clients)}
-        self.unexplored_clients = list(range(0, self.n_all_clients))
+        # self.rank = {i: [] for i in range(self.n_selected)}
+        self.rank = {client_id: [] for client_id in range(0, self.n_all_clients)}
+        # self.n_selected = int(self.n_all_clients * self.server_config["participate_ratio"])  # 10, = n rank group
+        # self.client_selected_times = {client_id: 0 for client_id in range(0, self.n_all_clients)}
+        # self.unexplored_clients = list(range(0, self.n_all_clients))
         self.black_num = 20  # 1 x times of the average (2 x 20)
+        # self.blacklist_num = 40  # 2 x times of the average (2 x 20)
+        # self.blacklist = []
 
     def ranking(self, client_uploads, round):
         res = round % 55
@@ -1047,7 +1050,6 @@ class FedAvgServer(Server):
             ref_list = []
             mul_acc_list = []
             for idx, (client_state_dict, _, ref_score) in enumerate(client_uploads):
-                print("----", idx)
                 D_list.append(self.clients_dict[idx].D_client)
                 entropy_list.append(ref_score[0])
                 ref_list.append(ref_score[1])
@@ -1064,63 +1066,57 @@ class FedAvgServer(Server):
                 mul_acc_list.append(mul_acc.cpu().numpy())
 
             # Calculate gradient list
-            gradients_list = []
-            for idx, (client_state_dict, _, _) in enumerate(client_uploads):
-                gradient = []
-                for state_key in client_state_dict.keys():
-                    if state_key not in self.exclude_layer_keys:
-                        g = client_state_dict[state_key] - self.server_model_state_dict[state_key]
-                        gradient.append(g.cpu().numpy().flatten())
-                gradient = np.concatenate(gradient, axis=0)
-                gradients_list.append(gradient)
-
-            weights = torch.tensor([1] * 10)
-            weights = weights / torch.sum(weights)
-            weights_2d = weights.unsqueeze(1)
-            gradients_list = torch.tensor(gradients_list)
-            gradient_global = gradients_list * weights_2d
-            gradient_global = torch.sum(gradient_global, 0)
-            cosin_similary_list = [torch.nn.CosineSimilarity(dim=0)(gradient_global, grad_k) for grad_k in
-                                   gradients_list]
+            gradient_list = []
+            global_param_before = [tens.detach().to("cpu").flatten() for tens in list(self.pre_global_model.parameters())]
+            global_param_before = np.concatenate(global_param_before)
+            for idx in self.active_clients_indicies:
+                param = [tens.detach().to("cpu").flatten() for tens in list(self.clients_dict[idx].model.parameters())]
+                param = np.concatenate(param)
+                gradient = param - global_param_before
+                gradient_list.append(gradient)
+            global_gradient = np.average(np.array(gradient_list), axis=0)
+            cosin_similary_list = [np.dot(g, global_gradient) / (np.linalg.norm(g) * np.linalg.norm(global_gradient))
+                                   for g in gradient_list]
 
             # Sort
             score_final = [D_list[i] * mul_acc_list[i] * cosin_similary_list[i] for i in range(len(mul_acc_list))]
-            print("---check active_clients_indicies : ", self.active_clients_indicies)
+            # score_final = [D_list[i] * mul_acc_list[i] for i in range(len(mul_acc_list))]
+            print("---check active_clients_indicies_before : ", self.active_clients_indicies)
             print("---check score_final : ", score_final)
             sorted_idx = np.array([x for _, x in sorted(zip(score_final, self.active_clients_indicies), reverse=True)])
             print("---check sorted_idx : ", sorted_idx)
             # self.sort_client[res - 1] = sorted_idx
 
-            print("---check active_clients_indicies : ", self.active_clients_indicies)
+            print("---check active_clients_indicies_before : ", self.active_clients_indicies)
             print("---check ref_list : ", ref_list)
             sorted_ref = np.array([x for _, x in sorted(zip(ref_list, self.active_clients_indicies), reverse=True)])
             print("---check sorted_ref : ", sorted_ref)
 
             for i in range(self.n_selected):
                 idx = sorted_idx[i]
-                if self.client_selected_times[idx] % self.black_num != 0:
-                    self.rank[i].append(idx)
-                else:       # update: if idx choose per 20-times, put it into the lowest rank group
-                    self.rank[self.n_selected-1].append(idx)
-                self.rank[i] = shuffle(self.rank[i])
+                self.rank[idx].append(i)
 
         # selection
-        # Select unexplored clients randomly
-        selected_clients = np.random.choice(self.unexplored_clients, min(self.n_selected, len(self.unexplored_clients)),
-                                                      replace=False).tolist()
-        for idx in selected_clients:        # update: remove choose-clients in unexplored-list
-            self.unexplored_clients.remove(idx)
-        # Select explored clients by rank high to low
-        rank_selected = 0
-        while len(selected_clients) < self.n_selected:
-            num_choose_in_rank = min(self.n_selected - len(selected_clients), len(self.rank[rank_selected]))
-            selected_clients += self.rank[rank_selected][:num_choose_in_rank]
-            self.rank[rank_selected] = self.rank[rank_selected][num_choose_in_rank:]    # update: remove choose-clients in rank-list
-            rank_selected += 1
+        scores = [(np.average(np.array(self.rank[idx]))+1) *
+                  np.sqrt(self.client_selected_times[idx] * self.client_last_rounds[idx] / self.current_round)
+                  if self.client_selected_times[idx] > 0 else 0 for idx in range(self.n_all_clients)]
+        sorted_all_idx = np.array([x for _, x in sorted(zip(scores, range(self.n_all_clients)), reverse=False)])
+        sorted_all_idx_valid = [idx for idx in sorted_all_idx if idx not in self.blacklist]
+        selected_clients = sorted_all_idx_valid[:self.n_selected]
+        print("---check scores: ", scores)
+        print("---check sorted_all_idx: ", sorted_all_idx)
 
-        # update client_selected_times
+        # update after selection
         for idx in selected_clients:
             self.client_selected_times[idx] += 1
+            self.client_last_rounds[idx] = self.current_round
+            if self.client_selected_times[idx] >= self.blacklist_num:
+                self.blacklist.append(idx)
+
+        print("---check active_clients_indicies: ", selected_clients)
+        print("-----check blacklist:", self.blacklist)
+        print("-----check client_selected_times:", [self.client_selected_times[k] for k in self.client_selected_times.keys()])
+        print("-----check rank:", [np.average(np.array(self.rank[k])) for k in self.rank.keys()])
 
         return selected_clients
 
